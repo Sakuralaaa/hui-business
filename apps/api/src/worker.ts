@@ -5,6 +5,7 @@ import { AppModule } from './app';
 import { Db,Context } from './db';
 import { Imports } from './imports';
 import { Analysis } from './analysis';
+import { Storage } from './storage';
 async function main(){
   if(process.env.DATABASE_URL_WORKER)process.env.DATABASE_URL=process.env.DATABASE_URL_WORKER;
   const app=await NestFactory.createApplicationContext(AppModule);const db=app.get(Db),imports=app.get(Imports),analysis=app.get(Analysis);
@@ -29,7 +30,7 @@ async function main(){
     }
   });
   async function dispatch(){const items=await db.workItem.findMany({where:{state:{in:['pending','dispatched']}},take:50,orderBy:{createdAt:'asc'}});for(const item of items){await boss.send('workbench',{workId:item.id},{singletonKey:item.id,retryLimit:2,retryDelay:15,expireInSeconds:900});await db.workItem.updateMany({where:{id:item.id,state:'pending'},data:{state:'dispatched'}});}}
-  await dispatch();const interval=setInterval(()=>dispatch().catch(e=>console.error('dispatch failed',e.name)),3000);
-  for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{clearInterval(interval);await boss.stop();await app.close();process.exit(0);});
+  await dispatch();const interval=setInterval(()=>dispatch().catch(e=>console.error('dispatch failed',e.name)),3000);const cleanup=setInterval(()=>app.get(Storage).cleanupTemp().catch(()=>{}),3600000);
+  for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{clearInterval(interval);clearInterval(cleanup);await boss.stop();await app.close();process.exit(0);});
 }
 main().catch(e=>{console.error(e);process.exit(1);});

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { Dataset, Mapping, recordSchema } from './contracts';
+import { Dataset, Mapping, recordSchema,fields } from './contracts';
 export const aliases:Record<string,string[]>={external_id:['id','编号','订单号','商品ID','询盘ID','外部ID'],source_updated_at:['更新时间','updated_at'],name:['名称','商品名称','客户名称'],sku:['SKU','货号'],unit:['单位'],currency:['币种','currency_code'],total:['订单金额','整单金额'],refund_total:['累计退款'],cost_total:['订单成本'],fee_total:['订单费用'],ordered_at:['下单时间'],paid_at:['支付时间'],customer_id:['客户ID'],product_id:['商品编号'],quantity:['数量'],unit_price:['单价'],received_at:['询盘时间'],first_reply_at:['首次回复时间'],status:['状态'],date:['日期'],sales:['销售额'],orders:['订单数'],spend:['花费'],clicks:['点击'],impressions:['曝光'],attributed_revenue:['广告归因收入'],occurred_at:['发生时间'],amount:['金额'],warehouse:['仓库'],as_of:['快照时间'],reserved:['预占数量']};
 export function suggestMapping(columns:string[],dataset:Dataset):Mapping {
-  const shape=recordSchema(dataset).shape;
+  const shape=fields[dataset];
   return {columns:Object.fromEntries(columns.flatMap(c=>{const k=Object.keys(shape).find(k=>k===c||aliases[k]?.includes(c));return k?[[c,k]]:[];})),constants:{},timezone:null,date_format:'iso',excluded_rows:[]};
 }
 export function normalizeRow(raw:Record<string,unknown>,mapping:Mapping,dataset:Dataset){

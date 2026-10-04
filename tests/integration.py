@@ -32,6 +32,12 @@ def wait_preview(batch):
         if preview['state'] in ('needs_mapping','needs_review','ready_for_confirmation','rejected','failed'): return preview
         time.sleep(1)
     raise AssertionError('import timed out')
+def wait_run(run_id):
+    for _ in range(60):
+        report=call('/analysis-runs/'+run_id)
+        if report['state'] in ('completed','failed'):return report
+        time.sleep(1)
+    raise AssertionError('analysis timed out')
 def upload(task, grant, directory, manifest, state):
     file=directory/'manifest.json';file.write_text(json.dumps(manifest),encoding='utf-8')
     result=subprocess.run(['python3','bridge/accio-bridge/scripts/upload.py','--api-base',BASE,'--manifest',str(file),'--directory',str(directory),'--state',str(state)],env={**os.environ,'HUI_UPLOAD_TOKEN':grant['token']},text=True,capture_output=True,timeout=120)
@@ -104,5 +110,20 @@ def main():
     order=call('/records/orders?shopId='+shop['id']+'&q=000009')['records'][0]
     refunded=call('/orders/'+order['id']+'/refunds',{'amount':'5','occurredAt':'2026-10-05T10:00:00Z','expectedVersion':order['version'],'externalId':'REFUND-CI'},headers={'Idempotency-Key':'refund-once'},expected=201)
     assert refunded['order']['data']['refund_total']=='15.00'
-    print('PASS: external upload, preview, confirmation, idempotency, duplicates, isolation, grant scope, source rules, metrics, receipts and refunds')
+    config={'provider':'openai-compatible','baseUrl':'http://localhost:8089/v1','model':'stub','apiKey':'cloud-only-test-key','monthlyBudget':'10','inputPrice':'1','outputPrice':'1','maxTokens':1000,'concurrency':2}
+    call('/model-config',config,method='PUT')
+    saved=call('/model-config');assert saved['hasKey'] and 'encryptedKey' not in saved
+    inquiry=call('/records/inquiries?shopId='+shop['id'])['records'][0]
+    ai=call('/analysis-runs',{'shopId':shop['id'],'kind':'reply','recordId':inquiry['id'],'useAi':True},expected=201)
+    ai_report=wait_run(ai['id']);assert ai_report['state']=='completed' and ai_report['model']=='stub',ai_report
+    assert call('/model-calls')[0]['cost']=='0.0005'
+    actions=call('/action-drafts');assert any(a['kind']=='reply' and a['status']=='draft' for a in actions)
+    config['model']='bad-evidence';config.pop('apiKey');call('/model-config',config,method='PUT')
+    bad=call('/analysis-runs',{'shopId':shop['id'],'kind':'reply','recordId':inquiry['id'],'useAi':True},expected=201)
+    bad_report=wait_run(bad['id']);assert bad_report['state']=='failed' and '证据' in bad_report['error'],bad_report
+    config['model']='stub';config['monthlyBudget']='0';call('/model-config',config,method='PUT')
+    over=call('/analysis-runs',{'shopId':shop['id'],'kind':'reply','recordId':inquiry['id'],'useAi':True},expected=201)
+    assert wait_run(over['id'])['state']=='failed'
+    config['monthlyBudget']='10';call('/model-config',config,method='PUT')
+    print('PASS: intake, transactions, isolation, source gates, provider, encrypted keys, cost ledger, evidence rejection and budget')
 if __name__=='__main__':main()

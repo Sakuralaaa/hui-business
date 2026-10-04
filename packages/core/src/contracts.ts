@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import Decimal from 'decimal.js';
 export const DATASETS = ['products','customers','suppliers','inquiries','quotes','samples','orders','order_lines','purchases','inventory','payments','expenses','daily','ads','content','tasks','knowledge','reviews'] as const;
 export type Dataset = typeof DATASETS[number];
 export const datasetSchema = z.enum(DATASETS);
@@ -54,6 +55,12 @@ export const fields:Record<Dataset,Record<string,z.ZodTypeAny>>={
   reviews:{...base,product_id:id,body:z.string().min(1),rating:z.string().optional(),received_at:timestamp.optional()}
 };
 export const labels:Record<Dataset,string>={products:'商品',customers:'客户',suppliers:'供应商',inquiries:'B2B 询盘',quotes:'报价',samples:'样品',orders:'订单',order_lines:'订单明细',purchases:'采购',inventory:'库存快照',payments:'收付款',expenses:'费用',daily:'经营日报',ads:'广告报表',content:'渠道内容',tasks:'待办任务',knowledge:'知识资料',reviews:'评论'};
-export function recordSchema(dataset:Dataset){return z.object(fields[dataset]).strict();}
+export function recordSchema(dataset:Dataset){return z.object(fields[dataset]).strict().superRefine((d,c)=>{
+  const valid=(v:unknown)=>typeof v==='string'&&money.safeParse(v).success;
+  if(dataset==='inventory'&&valid(d.reserved)&&valid(d.quantity)&&new Decimal(String(d.reserved)).gt(String(d.quantity)))c.addIssue({code:'custom',path:['reserved'],message:'预占量不能超过自有库存数量'});
+  if(dataset==='orders'&&valid(d.refund_total)&&valid(d.total)&&new Decimal(String(d.refund_total)).gt(String(d.total)))c.addIssue({code:'custom',path:['refund_total'],message:'累计退款不能超过订单金额'});
+  if(dataset==='purchases'&&valid(d.received_quantity)&&valid(d.quantity)&&new Decimal(String(d.received_quantity)).gt(String(d.quantity)))c.addIssue({code:'custom',path:['received_quantity'],message:'已收货数量不能超过采购数量'});
+  if(dataset==='inquiries'&&d.first_reply_at&&Date.parse(String(d.first_reply_at))<Date.parse(String(d.received_at)))c.addIssue({code:'custom',path:['first_reply_at'],message:'首次回复时间早于询盘收到时间'});
+});}
 export function requiredFields(dataset:Dataset){return Object.entries(fields[dataset]).filter(([,v])=>!v.isOptional()&&!v.isNullable()&&!(v instanceof z.ZodDefault)).map(([k])=>k);}
 export const collectionSchema=z.object({shopId:z.string().uuid(),datasets:z.array(datasetSchema).min(1),periodStart:timestamp.nullable(),periodEnd:timestamp.nullable(),timezone:z.string().nullable(),requiredFields:z.array(z.string()).default([]),allowedMethods:z.array(acquisitionSchema).min(1),notes:z.string().max(2000).default('')});

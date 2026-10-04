@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { resolve,dirname,sep } from 'node:path';
-import { mkdir,copyFile,unlink,open } from 'node:fs/promises';
+import { mkdir,copyFile,unlink,open,readdir,stat } from 'node:fs/promises';
 import { createReadStream,createWriteStream,constants } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { StorageProvider } from '@workbench/core';
@@ -21,4 +21,5 @@ export class Storage implements StorageProvider {
   }
   async remove(key:string){if(this.s3)await this.s3.send(new DeleteObjectCommand({Bucket:process.env.S3_BUCKET!,Key:key}));else await unlink(this.path(key)).catch(()=>{});}
   async temp(){const key=`tmp/${crypto.randomUUID()}`;const path=this.path(key);await mkdir(dirname(path),{recursive:true});await (await open(path,'wx')).close();return path;}
+  async cleanupTemp(){const directory=this.path('tmp');const files=await readdir(directory,{withFileTypes:true}).catch(()=>[]);for(const f of files){if(!f.isFile())continue;const path=this.path('tmp/'+f.name);const info=await stat(path);if(info.mtimeMs<Date.now()-24*3600000)await unlink(path).catch(()=>{});}}
 }

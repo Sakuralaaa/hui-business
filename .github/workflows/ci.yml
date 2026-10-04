@@ -25,6 +25,8 @@ jobs:
       COOKIE_SECURE: 'false'
       PUBLIC_URL: http://127.0.0.1:4173
       CI_DIAGNOSTICS: 'true'
+      MODEL_HOST_ALLOWLIST: localhost:8089
+      ALLOW_LOCAL_MODEL_HTTP: 'true'
       STORAGE_PATH: /tmp/workbench-objects
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +43,7 @@ jobs:
           psql "$DATABASE_URL_ADMIN" -c "ALTER ROLE workbench_app LOGIN PASSWORD 'app_ci_password'; ALTER ROLE workbench_worker LOGIN PASSWORD 'worker_ci_password'; GRANT USAGE,CREATE ON SCHEMA public TO workbench_worker; GRANT CREATE ON DATABASE workbench TO workbench_worker;"
           DATABASE_URL=postgresql://workbench_app:app_ci_password@localhost:5432/workbench node apps/api/dist/main.js > /tmp/api.log 2>&1 &
           DATABASE_URL=postgresql://workbench_worker:worker_ci_password@localhost:5432/workbench node apps/api/dist/worker.js > /tmp/worker.log 2>&1 &
+          python3 tests/model_stub.py > /tmp/model-stub.log 2>&1 &
           python3 tests/integration.py
       - name: Browser acceptance and screenshots
         run: |
