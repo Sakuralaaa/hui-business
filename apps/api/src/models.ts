@@ -27,7 +27,7 @@ export class Models {
   async settings(ctx:Context){admin(ctx);return this.db.tenant(ctx,async tx=>{const c=await tx.modelConfig.findUnique({where:{enterpriseId:ctx.enterpriseId}});if(!c)return null;const {encryptedKey,...safe}=c;return {...safe,hasKey:!!encryptedKey};});}
   async save(ctx:Context,body:unknown){
     admin(ctx);const c=configSchema.parse(body);allowedUrl(c.baseUrl);for(const key of ['monthlyBudget','inputPrice','outputPrice'] as const)if(!new Decimal(c[key]).isFinite()||new Decimal(c[key]).lt(0))fail('MODEL_PRICE','预算与价格需要非负数');
-    return this.db.tenant(ctx,async tx=>{const prev=await tx.modelConfig.findUnique({where:{enterpriseId:ctx.enterpriseId}});if(!c.apiKey&&!prev)fail('MODEL_KEY','首次配置需要模型密钥');const {apiKey,...data}=c;await tx.modelConfig.upsert({where:{enterpriseId:ctx.enterpriseId},create:{...data,enterpriseId:ctx.enterpriseId,encryptedKey:encrypt(apiKey!)},update:{...data,...(apiKey?{encryptedKey:encrypt(apiKey)}:{})}});await audit(tx,ctx,'model.configure',ctx.enterpriseId,{provider:c.provider,model:c.model});return {ok:true};});
+    return this.db.tenant(ctx,async tx=>{const prev=await tx.modelConfig.findUnique({where:{enterpriseId:ctx.enterpriseId}});if(!c.apiKey&&!prev)fail('MODEL_KEY','首次配置需要模型密钥');const {apiKey,...data}=c;await tx.modelConfig.upsert({where:{enterpriseId:ctx.enterpriseId},create:{...data,enterpriseId:ctx.enterpriseId,encryptedKey:apiKey?encrypt(apiKey):prev!.encryptedKey},update:{...data,...(apiKey?{encryptedKey:encrypt(apiKey)}:{})}});await audit(tx,ctx,'model.configure',ctx.enterpriseId,{provider:c.provider,model:c.model});return {ok:true};});
   }
   async call(ctx:Context,shopId:string,runId:string,system:string,user:string){
     if(user.length>100000)fail('MODEL_INPUT','模型输入超过首版限制');
