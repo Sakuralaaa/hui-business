@@ -9,7 +9,7 @@ import { Storage } from './storage';
 async function main(){
   if(process.env.DATABASE_URL_WORKER)process.env.DATABASE_URL=process.env.DATABASE_URL_WORKER;
   const app=await NestFactory.createApplicationContext(AppModule);const db=app.get(Db),imports=app.get(Imports),analysis=app.get(Analysis);
-  const boss=new PgBoss({connectionString:process.env.DATABASE_URL!,schema:'pgboss'});await boss.start();await boss.createQueue('workbench');
+  const boss=new PgBoss({connectionString:process.env.DATABASE_URL!,schema:'pgboss'});boss.on('error',error=>console.error('job system error',error.name));await boss.start();await boss.createQueue('workbench');
   await boss.work<{workId:string}>('workbench',{batchSize:1},async jobs=>{
     for(const job of jobs){
       const item=await db.workItem.findUnique({where:{id:job.data.workId}});if(!item||item.state==='completed')continue;
