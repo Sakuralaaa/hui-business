@@ -64,7 +64,17 @@ jobs:
   images:
     if: github.event_name != 'pull_request'
     needs: validate
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -74,22 +84,22 @@ jobs:
         with:
           context: .
           target: runtime
+          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}
-            ghcr.io/sakuralaaa/hui-business-api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=api-${{ matrix.arch }}
+          cache-to: type=gha,scope=api-${{ matrix.arch }},mode=max
       - uses: docker/build-push-action@v6
         with:
           context: .
           target: web
+          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}
-            ghcr.io/sakuralaaa/hui-business-web:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=web-${{ matrix.arch }}
+          cache-to: type=gha,scope=web-${{ matrix.arch }},mode=max
       - name: Run built images and restore a database backup
         env:
           POSTGRES_PASSWORD: cloud_container_admin_password
@@ -100,8 +110,8 @@ jobs:
           BOOTSTRAP_PASSWORD: image-cloud-password-only
           PUBLIC_URL: http://localhost:8080
           COOKIE_SECURE: 'false'
-          API_IMAGE: ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}
-          WEB_IMAGE: ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}
+          API_IMAGE: ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}-${{ matrix.arch }}
+          WEB_IMAGE: ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}-${{ matrix.arch }}
         run: |
           docker compose up -d db migrate api worker web
           docker compose run --rm seed
@@ -116,3 +126,18 @@ jobs:
       - name: Container diagnostic logs
         if: failure()
         run: docker compose logs --no-color || true
+  publish-manifests:
+    if: github.event_name != 'pull_request'
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
+      - name: Publish tested AMD64 and ARM64 image indexes
+        run: |
+          for component in api web; do
+            image="ghcr.io/sakuralaaa/hui-business-${component}"
+            docker buildx imagetools create -t "${image}:${GITHUB_SHA}" -t "${image}:latest" "${image}:${GITHUB_SHA}-amd64" "${image}:${GITHUB_SHA}-arm64"
+            docker buildx imagetools inspect "${image}:${GITHUB_SHA}"
+          done
