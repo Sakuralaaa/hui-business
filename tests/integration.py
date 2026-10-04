@@ -85,6 +85,24 @@ def main():
         if report['state']=='failed':raise AssertionError(report)
         time.sleep(1)
     assert report['state']=='completed',report
-    assert report['metrics']['currencies'][0]['contribution_profit'] is None # seed includes missing costs
-    print('PASS: external upload, preview, confirmation, idempotency, duplicates, isolation, grant scope, deterministic analysis')
+    assert any(g['dataset']=='orders' for g in report['metrics']['data_gates']) # overlapping sources need a rule
+    call('/shops/'+shop['id']+'/source-rules',{'rules':{'orders':shop['platform']}},method='PATCH')
+    run=call('/analysis-runs',{'shopId':shop['id'],'kind':'business','useAi':False},expected=201)
+    for _ in range(45):
+        report=call('/analysis-runs/'+run['id'])
+        if report['state']=='completed':break
+        time.sleep(1)
+    assert report['metrics']['currencies'][0]['revenue']=='90.00',report
+    assert report['metrics']['currencies'][0]['contribution_profit']=='35.00',report
+    inventory=call('/records/inventory?shopId='+shop['id'])['records'][0]
+    purchase=call('/records/purchases?shopId='+shop['id'])['records'][0]
+    inventory=next(r for r in call('/records/inventory?shopId='+shop['id'])['records'] if r['data']['product_id']==purchase['data']['product_id'])
+    receipt={'inventoryId':inventory['id'],'quantity':'10','expectedPurchaseVersion':purchase['version'],'expectedInventoryVersion':inventory['version']}
+    received=call('/purchases/'+purchase['id']+'/receive',receipt,headers={'Idempotency-Key':'receipt-once'},expected=201)
+    assert received['purchase']['data']['received_quantity']=='110.0000'
+    assert call('/purchases/'+purchase['id']+'/receive',receipt,headers={'Idempotency-Key':'receipt-once'},expected=201)==received
+    order=call('/records/orders?shopId='+shop['id']+'&q=000009')['records'][0]
+    refunded=call('/orders/'+order['id']+'/refunds',{'amount':'5','occurredAt':'2026-10-05T10:00:00Z','expectedVersion':order['version'],'externalId':'REFUND-CI'},headers={'Idempotency-Key':'refund-once'},expected=201)
+    assert refunded['order']['data']['refund_total']=='15.00'
+    print('PASS: external upload, preview, confirmation, idempotency, duplicates, isolation, grant scope, source rules, metrics, receipts and refunds')
 if __name__=='__main__':main()

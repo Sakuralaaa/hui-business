@@ -24,6 +24,7 @@ jobs:
       ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       COOKIE_SECURE: 'false'
       PUBLIC_URL: http://localhost:3000
+      CI_DIAGNOSTICS: 'true'
       STORAGE_PATH: /tmp/workbench-objects
     steps:
       - uses: actions/checkout@v4

@@ -7,7 +7,8 @@ import { Business } from './business';
 import { Analysis } from './analysis';
 import { Models } from './models';
 import { Assets } from './assets';
+import { Operations } from './operations';
 import { SessionGuard,GrantGuard } from './auth';
 import { AuthController,IntakeController,AppController } from './controllers';
-@Module({controllers:[AuthController,IntakeController,AppController],providers:[Db,Storage,Intake,Imports,Business,Analysis,Models,Assets,SessionGuard,GrantGuard]})
+@Module({controllers:[AuthController,IntakeController,AppController],providers:[Db,Storage,Intake,Imports,Business,Analysis,Models,Assets,Operations,SessionGuard,GrantGuard]})
 export class AppModule {}

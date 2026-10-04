@@ -47,8 +47,10 @@ export class Intake {
         if(task.periodStart&&(!f.period_start||Date.parse(f.period_start)<task.periodStart.getTime()))fail('PERIOD_SCOPE','文件开始时间超出任务范围或未声明');
         if(task.periodEnd&&(!f.period_end_exclusive||Date.parse(f.period_end_exclusive)>task.periodEnd.getTime()))fail('PERIOD_SCOPE','文件结束时间超出任务范围或未声明');
       }
-      const batch=await tx.importBatch.create({data:{enterpriseId:req.ctx.enterpriseId,shopId:task.shopId,collectionRequestId:task.id,grantId:req.grant!.id,manifest:json(manifest),mapping:{},files:{create:manifest.files.map(f=>({enterpriseId:req.ctx.enterpriseId,shopId:task.shopId,filename:f.filename,dataset:f.dataset,sha256:f.sha256,size:f.size,spec:json(f)}))}},include:{files:true}});
-      await audit(tx,req.ctx,'intake.create',batch.id,{},task.shopId);return {id:batch.id,state:batch.state,files:batch.files.map(f=>({id:f.id,filename:f.filename,uploaded:false}))};
+      const batch=await tx.importBatch.create({data:{enterpriseId:req.ctx.enterpriseId,shopId:task.shopId,collectionRequestId:task.id,grantId:req.grant!.id,manifest:json(manifest),mapping:{} }});
+      await tx.importFile.createMany({data:manifest.files.map(f=>({enterpriseId:req.ctx.enterpriseId,shopId:task.shopId,batchId:batch.id,filename:f.filename,dataset:f.dataset,sha256:f.sha256,size:f.size,spec:json(f)}))});
+      const files=await tx.importFile.findMany({where:{batchId:batch.id}});
+      await audit(tx,req.ctx,'intake.create',batch.id,{},task.shopId);return {id:batch.id,state:batch.state,files:files.map(f=>({id:f.id,filename:f.filename,uploaded:false}))};
     });
   }
   async status(req:AuthRequest,id:string){return this.db.tenant(req.ctx,async tx=>{const batch=await tx.importBatch.findFirst({where:{id,enterpriseId:req.ctx.enterpriseId,grantId:req.grant!.id},include:{files:true}});if(!batch)fail('SESSION','会话不存在',404);return {id:batch.id,state:batch.state,error:batch.error,files:batch.files.map(f=>({id:f.id,filename:f.filename,uploaded:!!f.uploadedAt})),summary:batch.summary};});}

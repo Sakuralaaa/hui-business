@@ -1,7 +1,7 @@
 import { Injectable,Inject } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { hash,calculateMetrics,BusinessRow } from '@workbench/core';
+import { hash,calculateMetrics,sevenDayTrend,BusinessRow } from '@workbench/core';
 import { Db,Context,audit,enqueue,shopWhere } from './db';
 import { assertShop,finance,permission } from './auth';
 import { Models } from './models';
@@ -21,10 +21,13 @@ export class Analysis {
       const allowed=input.kind==='business'?undefined:input.kind==='reply'?['inquiries','customers','products','knowledge']:input.kind==='content'?['content','products','knowledge']:['products','reviews','knowledge','inquiries'];
       const records=await tx.businessRecord.findMany({where:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,...(allowed?{dataset:{in:allowed}}:{})},orderBy:{id:'asc'},take:200000});
       if(input.recordId&&!records.some(r=>r.id===input.recordId))fail('RECORD','分析对象不可访问',404);
-      const snapshotRows=records.map(r=>{const safe=presentRecord(ctx,r);return {id:r.id,dataset:r.dataset,version:r.version,data:safe.data};});
+      const rules=(shop.capabilities as any)?.sourceRules??{};const sourceGroups=new Map<string,Set<string>>();for(const r of records){if(!sourceGroups.has(r.dataset))sourceGroups.set(r.dataset,new Set());sourceGroups.get(r.dataset)!.add(r.sourcePlatform);}
+      const blocked=[...sourceGroups.entries()].filter(([dataset,sources])=>sources.size>1&&!rules[dataset]).map(([dataset,sources])=>({dataset,sources:[...sources],reason:'同数据集存在多来源，需确认计量主来源，避免重复统计'}));
+      const snapshotRows=records.filter(r=>!rules[r.dataset]||r.sourcePlatform===rules[r.dataset]).map(r=>{const safe=presentRecord(ctx,r);return {id:r.id,dataset:r.dataset,version:r.version,data:safe.data};});
       const fingerprint=hash({rows:snapshotRows,role:ctx.role,userId:ctx.userId});
       const snapshot=await tx.datasetSnapshot.upsert({where:{enterpriseId_shopId_fingerprint:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint}},create:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint,records:json(snapshotRows)},update:{}});
-      const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds};
+      const enterprise=await tx.enterprise.findUnique({where:{id:ctx.enterpriseId}});
+      const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds,blockedDatasets:blocked,timezone:enterprise?.timezone??'Asia/Shanghai',sourceRules:rules};
       const run=await tx.analysisRun.create({data:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,snapshotId:snapshot.id,createdBy:ctx.userId,kind:input.kind,parameters:json(params)}});await enqueue(tx,ctx,input.shopId,'analysis',{runId:run.id});await audit(tx,ctx,'analysis.create',run.id,{kind:input.kind,snapshotId:snapshot.id},input.shopId);return run;
     });
   }
@@ -32,7 +35,8 @@ export class Analysis {
     const input=await this.db.tenant(ctx,async tx=>{const run=await tx.analysisRun.findUnique({where:{id:runId}});if(!run)fail('RUN','任务不存在',404);const snapshot=await tx.datasetSnapshot.findUnique({where:{id:run.snapshotId}});return {run,snapshot};});
     if(input.run.state==='completed')return;const rows=input.snapshot!.records as unknown as BusinessRow[];const p=input.run.parameters as any;
     await this.db.tenant(ctx,tx=>tx.analysisRun.update({where:{id:runId},data:{state:'running'}}));
-    const metrics=calculateMetrics(rows,p.cutoff);let insights:any={insights:[],actions:[],mode:'deterministic',limitations:['尚未调用模型；指标已经可以独立复算']};let model:string|undefined;
+    const blocked=new Set((p.blockedDatasets??[]).map((x:any)=>x.dataset));const usable=rows.filter(r=>!blocked.has(r.dataset));
+    const metrics={...calculateMetrics(usable,p.cutoff),data_gates:p.blockedDatasets??[],trend:sevenDayTrend(usable,p.cutoff,p.timezone??'Asia/Shanghai')};let insights:any={insights:[],actions:[],mode:'deterministic',limitations:['尚未调用模型；指标已经可以独立复算']};let model:string|undefined;
     try{
       if(p.useAi){
         const samples=[...rows.filter(r=>r.id===p.recordId),...rows.filter(r=>r.id!==p.recordId&&r.dataset!=='customers')].slice(0,30);

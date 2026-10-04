@@ -16,6 +16,7 @@ import { Models } from './models';
 import { Assets } from './assets';
 import { Storage } from './storage';
 import { fail } from './errors';
+import { Operations } from './operations';
 const page=(p:unknown)=>z.coerce.number().int().min(1).max(100000).default(1).parse(p);
 const uuid=(p:unknown)=>z.string().uuid().parse(p);
 @ApiTags('登录')
@@ -52,10 +53,11 @@ export class IntakeController {
 @Controller()
 @UseGuards(SessionGuard)
 export class AppController {
-  constructor(@Inject(Db) private db:Db,@Inject(Intake) private intake:Intake,@Inject(Imports) private imports:Imports,@Inject(Business) private business:Business,@Inject(Analysis) private analysis:Analysis,@Inject(Models) private models:Models,@Inject(Assets) private assets:Assets,@Inject(Storage) private storage:Storage){}
+  constructor(@Inject(Db) private db:Db,@Inject(Intake) private intake:Intake,@Inject(Imports) private imports:Imports,@Inject(Business) private business:Business,@Inject(Analysis) private analysis:Analysis,@Inject(Models) private models:Models,@Inject(Assets) private assets:Assets,@Inject(Storage) private storage:Storage,@Inject(Operations) private operations:Operations){}
   @Get('schemas') schemas(){return DATASETS.map(d=>({dataset:d,label:labels[d],fields:Object.entries(fields[d]).map(([name,schema])=>({name,required:!schema.isOptional()&&!(schema instanceof z.ZodDefault)}))}));}
   @Get('shops') shops(@Req() req:AuthRequest){return this.db.tenant(req.ctx,tx=>tx.shop.findMany({where:{enterpriseId:req.ctx.enterpriseId,...(req.ctx.shopIds===null?{}:{id:{in:req.ctx.shopIds}})}}));}
   @Post('shops') createShop(@Req() req:AuthRequest,@Body() body:unknown){admin(req.ctx);const p=z.object({name:z.string().min(1),platform:z.enum(['alibaba_com','amazon','shopify','other'])}).parse(body);return this.db.tenant(req.ctx,tx=>tx.shop.create({data:{enterpriseId:req.ctx.enterpriseId,...p,capabilities:{fileImport:true,apiRead:false,apiWrite:false,accio:'unverified'}}}));}
+  @Patch('shops/:id/source-rules') sourceRules(@Req() req:AuthRequest,@Param('id') id:string,@Body() b:unknown){admin(req.ctx);const p=z.object({rules:z.record(datasetSchema,z.string().min(1))}).parse(b);return this.db.tenant(req.ctx,async tx=>{const shop=await tx.shop.findFirst({where:{id:uuid(id),enterpriseId:req.ctx.enterpriseId}});if(!shop)fail('SHOP','店铺不存在',404);await tx.shop.update({where:{id},data:{capabilities:{...shop.capabilities as any,sourceRules:p.rules}}});await audit(tx,req.ctx,'shop.source-rules',id,{rules:p.rules},id);return {ok:true};});}
   @Get('collection-requests') collections(@Req() req:AuthRequest){return this.db.tenant(req.ctx,tx=>tx.collectionRequest.findMany({where:{enterpriseId:req.ctx.enterpriseId,...shopWhere(req.ctx)},orderBy:{createdAt:'desc'},take:100}));}
   @Post('collection-requests') createCollection(@Req() req:AuthRequest,@Body() body:unknown){return this.intake.createCollection(req.ctx,body);}
   @Post('collection-requests/:id/upload-grants') grant(@Req() req:AuthRequest,@Param('id') id:string){return this.intake.issueGrant(req.ctx,uuid(id));}
@@ -71,6 +73,8 @@ export class AppController {
   @Get('record-history/:id') history(@Req() req:AuthRequest,@Param('id') id:string){return this.business.history(req.ctx,uuid(id));}
   @Post('entity-links') link(@Req() req:AuthRequest,@Body() b:unknown){return this.business.link(req.ctx,b);}
   @Post('inventory/:id/movements') movement(@Req() req:AuthRequest,@Param('id') id:string,@Body() b:unknown){return this.business.movement(req.ctx,uuid(id),b);}
+  @Post('purchases/:id/receive') receive(@Req() req:AuthRequest,@Param('id') id:string,@Body() b:unknown,@Headers('idempotency-key') key:string){if(!key||key.length>160)fail('IDEMPOTENCY','收货需要幂等键');return this.operations.receive(req.ctx,uuid(id),b,key);}
+  @Post('orders/:id/refunds') refund(@Req() req:AuthRequest,@Param('id') id:string,@Body() b:unknown,@Headers('idempotency-key') key:string){if(!key||key.length>160)fail('IDEMPOTENCY','退款需要幂等键');return this.operations.refund(req.ctx,uuid(id),b,key);}
   @Post('quote-scenarios') scenario(@Req() req:AuthRequest,@Body() b:unknown){permission(req.ctx,'quotes');return this.business.scenario(b);}
   @Post('analysis-runs') createAnalysis(@Req() req:AuthRequest,@Body() b:unknown){return this.analysis.create(req.ctx,b);}
   @Get('analysis-runs') runs(@Req() req:AuthRequest){return this.db.tenant(req.ctx,tx=>tx.analysisRun.findMany({where:{enterpriseId:req.ctx.enterpriseId,...shopWhere(req.ctx),...(['owner','admin','finance'].includes(req.ctx.role)?{}:{createdBy:req.ctx.userId,kind:{not:'business'}})},orderBy:{createdAt:'desc'},take:100}));}
