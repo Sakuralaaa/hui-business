@@ -4,5 +4,6 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --se
 CREATE ROLE workbench_app LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD :'app_password';
 CREATE ROLE workbench_worker LOGIN NOSUPERUSER BYPASSRLS PASSWORD :'worker_password';
 GRANT CONNECT ON DATABASE workbench TO workbench_app,workbench_worker;
+GRANT CREATE ON DATABASE workbench TO workbench_worker;
 GRANT USAGE,CREATE ON SCHEMA public TO workbench_worker;
 SQL

@@ -37,7 +37,7 @@ jobs:
       - run: npm run db:deploy && npm run seed
       - name: API, importer, RLS and external uploader integration
         run: |
-          psql "$DATABASE_URL_ADMIN" -c "ALTER ROLE workbench_app LOGIN PASSWORD 'app_ci_password'; ALTER ROLE workbench_worker LOGIN PASSWORD 'worker_ci_password'; GRANT USAGE,CREATE ON SCHEMA public TO workbench_worker;"
+          psql "$DATABASE_URL_ADMIN" -c "ALTER ROLE workbench_app LOGIN PASSWORD 'app_ci_password'; ALTER ROLE workbench_worker LOGIN PASSWORD 'worker_ci_password'; GRANT USAGE,CREATE ON SCHEMA public TO workbench_worker; GRANT CREATE ON DATABASE workbench TO workbench_worker;"
           DATABASE_URL=postgresql://workbench_app:app_ci_password@localhost:5432/workbench node apps/api/dist/main.js > /tmp/api.log 2>&1 &
           DATABASE_URL=postgresql://workbench_worker:worker_ci_password@localhost:5432/workbench node apps/api/dist/worker.js > /tmp/worker.log 2>&1 &
           python3 tests/integration.py

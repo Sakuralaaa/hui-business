@@ -7,6 +7,13 @@ import subprocess
 import urllib.request
 import zipfile
 
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        next_req=super().redirect_request(req,fp,code,msg,headers,newurl)
+        if next_req and urllib.parse.urlsplit(newurl).hostname != 'api.github.com':
+            next_req.remove_header('Authorization')
+        return next_req
+
 def credentials():
     proc=subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\n\n',text=True,capture_output=True,timeout=30)
     values=dict(line.split('=',1) for line in proc.stdout.splitlines() if '=' in line)
@@ -17,7 +24,7 @@ def main():
     if not token: print('GitHub API credential unavailable');return
     def get(path,raw=False):
         request=urllib.request.Request('https://api.github.com/repos/Sakuralaaa/hui-business'+path,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','User-Agent':'hui-business-ci'})
-        with urllib.request.urlopen(request,timeout=45) as response:
+        with urllib.request.build_opener(SafeRedirect()).open(request,timeout=45) as response:
             return response.read() if raw else json.load(response)
     if args.run and args.logs:
         jobs=get('/actions/runs/'+str(args.run)+'/jobs')
@@ -25,7 +32,10 @@ def main():
             print(job['name'],job['conclusion'])
             if job['conclusion']=='failure':
                 raw=get('/actions/jobs/'+str(job['id'])+'/logs',True).decode('utf-8',errors='replace')
-                lines=raw.splitlines();print('\n'.join(lines[-110:]))
+                lines=raw.splitlines();indices=[i for i,line in enumerate(lines) if any(k in line for k in ['error TS','Error:','##[error]','FAIL','AssertionError','error:','Error validating'])];selected=set()
+                for i in indices:
+                    selected.update(range(max(0,i-3),min(len(lines),i+14)))
+                print('\n'.join(lines[i] for i in sorted(selected)) if selected else '\n'.join(lines[-110:]))
     elif args.run and args.artifacts:
         artifacts=get('/actions/runs/'+str(args.run)+'/artifacts')['artifacts']
         for artifact in artifacts:

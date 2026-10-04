@@ -4,6 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "workspaces": ["packages/core", "apps/api", "apps/web"],
+  "overrides": {"vite":"6.2.2"},
   "scripts": {
     "build": "npm run build -w @workbench/core && npm run build -w @workbench/api && npm run build -w @workbench/web",
     "typecheck": "npm run build -w @workbench/core && npm run typecheck --workspaces --if-present",

@@ -8,6 +8,7 @@ import { permission } from './auth';
 import { Storage } from './storage';
 import { parseFile,extractZip } from './parser';
 import { fail } from './errors';
+import { shopLock } from './business';
 const json=(v:any):Prisma.InputJsonValue=>JSON.parse(JSON.stringify(v));
 const readable=(e:unknown)=>e instanceof Error?e.message:'解析失败';
 @Injectable()
@@ -97,6 +98,7 @@ export class Imports {
     return this.db.tenant(ctx,async tx=>{
       await tx.$queryRaw`SELECT id FROM "ImportBatch" WHERE id=${id}::uuid FOR UPDATE`;
       const b=await tx.importBatch.findFirst({where:{id,enterpriseId:ctx.enterpriseId,...shopWhere(ctx)},include:{files:true}});if(!b)fail('BATCH','批次不存在',404);
+      await shopLock(tx,ctx,b.shopId);
       const requestHash=hash({id,input});const cached=await tx.idempotency.findUnique({where:{enterpriseId_shopId_key:{enterpriseId:ctx.enterpriseId,shopId:b.shopId,key}}});if(cached){if(cached.requestHash!==requestHash)fail('IDEMPOTENCY','幂等键被不同请求使用',409);return cached.response;}
       if(b.state==='completed')return {id,state:'completed'};
       if(!['needs_review','needs_mapping','ready_for_confirmation'].includes(b.state)||b.previewVersion!==input.previewVersion||b.previewHash!==input.previewHash)fail('PREVIEW_STALE','预览已变化，请重新查看并确认',409);
