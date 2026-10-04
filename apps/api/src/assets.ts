@@ -15,7 +15,7 @@ export class Assets {
   constructor(@Inject(Db) private db:Db,@Inject(Storage) private storage:Storage){}
   async upload(req:AuthRequest,shopId:string){
     assertShop(req.ctx,shopId);permission(req.ctx,'products',true);
-    const filename=z.string().min(1).max(180).parse(req.headers['x-filename']);if(!/\.(png|jpe?g|webp)$/i.test(filename)||/[\/\\]/.test(filename))fail('IMAGE','仅支持 PNG/JPEG/WebP');
+    const filename=z.string().min(1).max(180).parse(decodeURIComponent(String(req.headers['x-filename']??'')));if(!/\.(png|jpe?g|webp)$/i.test(filename)||/[\/\\]/.test(filename))fail('IMAGE','仅支持 PNG/JPEG/WebP');
     const temp=await this.storage.temp();const sha=createHash('sha256');let size=0;
     try{
       await pipeline(req,new Transform({transform(chunk,_,cb){size+=chunk.length;if(size>20*1024*1024)return cb(Error('图片超过 20 MiB'));sha.update(chunk);cb(null,chunk);}}),createWriteStream(temp));

@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
-import { passwordHash } from '../apps/api/src/auth';
+import { randomBytes,scryptSync } from 'node:crypto';
+function passwordHash(password:string){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(password,salt,64).toString('hex')}`;}
 const db=new PrismaClient({datasourceUrl:process.env.DATABASE_URL_ADMIN??process.env.DATABASE_URL});
 async function main(){
   const email=process.env.BOOTSTRAP_EMAIL,password=process.env.BOOTSTRAP_PASSWORD;if(!email||!password||password.length<12)throw Error('设置 BOOTSTRAP_EMAIL 与至少 12 位的 BOOTSTRAP_PASSWORD');

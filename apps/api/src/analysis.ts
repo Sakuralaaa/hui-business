@@ -48,7 +48,7 @@ export class Analysis {
       }
       await this.db.tenant(ctx,async tx=>{
         for(const action of insights.actions??[]){const record=rows.find(r=>r.id===action.record_id);if(action.kind==='content_apply'&&record?.dataset!=='content')throw Error('内容操作对象错误');
-          await tx.actionDraft.create({data:{enterpriseId:ctx.enterpriseId,shopId:input.run.shopId,kind:action.kind,recordId:record?.id,baseVersion:(record as any)?.version,sourceHash:record?hash(record.data):undefined,payload:json(action.payload),evidence:json({runId,recordIds:action.evidence_ids})}});
+          await tx.actionDraft.create({data:{enterpriseId:ctx.enterpriseId,shopId:input.run.shopId,kind:action.kind,recordId:record?.id,baseVersion:(record as any)?.version,sourceHash:record?hash(record.data):undefined,payload:json(action.payload),evidence:json({runId,recordIds:action.evidence_ids,restrictedFinance:input.run.kind==='business',createdBy:ctx.userId})}});
         }
         await tx.analysisRun.update({where:{id:runId},data:{state:'completed',metrics:json(metrics),insights:json(insights),model}});
       });

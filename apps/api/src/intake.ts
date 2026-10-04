@@ -6,7 +6,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Manifest,manifestSchema,collectionSchema,limits } from '@workbench/core';
 import { Db,Context,audit,enqueue,shopWhere } from './db';
-import { admin,assertShop,tokenHash,AuthRequest } from './auth';
+import { admin,assertShop,tokenHash,AuthRequest,permission } from './auth';
 import { Storage } from './storage';
 import { fail } from './errors';
 const json=(v:any)=>JSON.parse(JSON.stringify(v));
@@ -16,6 +16,7 @@ export class Intake {
   async createCollection(ctx:Context,body:unknown){
     if(ctx.role==='viewer')fail('FORBIDDEN','没有采集任务创建权限',403);
     const data=collectionSchema.parse(body);assertShop(ctx,data.shopId);
+    for(const dataset of data.datasets)permission(ctx,dataset,true);
     if(data.periodStart&&data.periodEnd&&Date.parse(data.periodStart)>=Date.parse(data.periodEnd))fail('PERIOD','时间范围无效');
     return this.db.tenant(ctx,async tx=>{
       const shop=await tx.shop.findFirst({where:{id:data.shopId,enterpriseId:ctx.enterpriseId}});if(!shop)fail('SHOP','店铺不存在',404);

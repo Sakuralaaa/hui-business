@@ -4,7 +4,7 @@ import Decimal from 'decimal.js';
 import { z } from 'zod';
 import { Dataset,datasetSchema,recordSchema,hash,quoteScenario } from '@workbench/core';
 import { Db,Context,audit,shopWhere,Tx } from './db';
-import { assertShop,permission,admin } from './auth';
+import { assertShop,permission,admin,finance } from './auth';
 import { fail } from './errors';
 const json=(v:any):Prisma.InputJsonValue=>JSON.parse(JSON.stringify(v));
 const financialFields=['cost','cost_total','fee_total','unitCost','margin'];
@@ -64,6 +64,7 @@ export class Business {
     if(ctx.role==='viewer')fail('FORBIDDEN','需要编辑权限',403);
     return this.db.tenant(ctx,async tx=>{
       const draft=await tx.actionDraft.findFirst({where:{id,enterpriseId:ctx.enterpriseId,...shopWhere(ctx)}});if(!draft)fail('ACTION','草稿不存在',404);await shopLock(tx,ctx,draft.shopId);
+      if((draft.evidence as any)?.restrictedFinance)finance(ctx);
       if(draft.status!=='draft')return draft;
       if(draft.kind==='content_apply'){
         const current=await tx.businessRecord.findFirst({where:{id:draft.recordId!,enterpriseId:ctx.enterpriseId,shopId:draft.shopId,dataset:'content'}});if(!current)fail('RECORD','内容不存在',404);permission(ctx,'content',true);
