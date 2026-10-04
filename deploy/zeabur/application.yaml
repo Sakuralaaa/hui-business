@@ -1,0 +1,267 @@
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: Hui business application
+spec:
+  description: API, background worker, bootstrap and web; deploy PostgreSQL and private
+    RustFS first.
+  variables:
+  - key: HUI_ENCRYPTION_KEY
+    type: STRING
+    name: HUI_ENCRYPTION_KEY
+    description: HUI_ENCRYPTION_KEY
+  - key: PUBLIC_ORIGIN
+    type: STRING
+    name: PUBLIC_ORIGIN
+    description: PUBLIC_ORIGIN
+  - key: APP_DB_PASSWORD
+    type: STRING
+    name: APP_DB_PASSWORD
+    description: APP_DB_PASSWORD
+  - key: WORKER_DB_PASSWORD
+    type: STRING
+    name: WORKER_DB_PASSWORD
+    description: WORKER_DB_PASSWORD
+  - key: ADMIN_EMAIL
+    type: STRING
+    name: ADMIN_EMAIL
+    description: ADMIN_EMAIL
+  - key: ADMIN_PASSWORD
+    type: STRING
+    name: ADMIN_PASSWORD
+    description: ADMIN_PASSWORD
+  services:
+  - name: bootstrap
+    template: PREBUILT_V2
+    spec:
+      source:
+        image: ghcr.io/sakuralaaa/hui-business-api:aeb1410141fbac2ec698bb86a4a74df85863bbdb
+        command:
+        - /bin/sh
+        - /opt/hui/bootstrap.sh
+      ports:
+      - id: health
+        port: 3001
+        type: HTTP
+      portForwarding:
+        enabled: false
+      healthCheck:
+        type: TCP
+        port: health
+      env:
+        ENCRYPTION_KEY:
+          default: ${HUI_ENCRYPTION_KEY}
+        PUBLIC_URL:
+          default: ${PUBLIC_ORIGIN}
+        COOKIE_SECURE:
+          default: 'true'
+        STORAGE_PATH:
+          default: /data/objects
+        CATALOG_PATH:
+          default: /app/catalog
+        MODEL_HOST_ALLOWLIST:
+          default: api.openai.com,api.deepseek.com,dashscope.aliyuncs.com
+        S3_BUCKET:
+          default: hui-business-originals
+        S3_REGION:
+          default: us-east-1
+        S3_ENDPOINT:
+          default: http://rustfs.zeabur.internal:9000
+        AWS_ACCESS_KEY_ID:
+          default: ${RUSTFS_USERNAME}
+        AWS_SECRET_ACCESS_KEY:
+          default: ${RUSTFS_PASSWORD}
+        DATABASE_URL:
+          default: ${POSTGRES_CONNECTION_STRING}
+        DATABASE_URL_ADMIN:
+          default: ${POSTGRES_CONNECTION_STRING}
+        APP_DB_PASSWORD:
+          default: ${APP_DB_PASSWORD}
+        WORKER_DB_PASSWORD:
+          default: ${WORKER_DB_PASSWORD}
+        BOOTSTRAP_EMAIL:
+          default: ${ADMIN_EMAIL}
+        BOOTSTRAP_PASSWORD:
+          default: ${ADMIN_PASSWORD}
+      configs:
+      - path: /opt/hui/bootstrap.sh
+        template: '#!/bin/sh
+
+          set -eu
+
+          cd /app
+
+          npm run db:deploy
+
+          node /opt/hui/roles.cjs
+
+          npm run seed
+
+          node /opt/hui/bucket.cjs
+
+          unset DATABASE_URL_ADMIN DATABASE_URL APP_DB_PASSWORD WORKER_DB_PASSWORD
+          BOOTSTRAP_PASSWORD
+
+          echo ''HUI_BOOTSTRAP_COMPLETE''
+
+          exec node -e ''require("http").createServer((req,res)=>res.end("initialized")).listen(3001,"0.0.0.0")''
+
+          '
+        envsubst: false
+        permission: 420
+      - path: /opt/hui/roles.cjs
+        template: "// Run once in the isolated bootstrap service, after schema installation.\n\
+          const { PrismaClient } = require('/app/node_modules/@prisma/client');\n\
+          const db = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL_ADMIN\
+          \ });\n(async () => {\n  for (const [role, key] of [['workbench_app', 'APP_DB_PASSWORD'],\
+          \ ['workbench_worker', 'WORKER_DB_PASSWORD']]) {\n    const password = process.env[key];\n\
+          \    if (!password || !/^[a-f0-9]{48}$/.test(password)) throw new Error(`Invalid\
+          \ ${key}`);\n    await db.$executeRawUnsafe(`ALTER ROLE ${role} LOGIN PASSWORD\
+          \ '${password}'`);\n  }\n  const [{ name }] = await db.$queryRawUnsafe('SELECT\
+          \ current_database() AS name');\n  const quoted = '\"' + name.replaceAll('\"\
+          ', '\"\"') + '\"';\n  await db.$executeRawUnsafe(`GRANT CONNECT ON DATABASE\
+          \ ${quoted} TO workbench_app,workbench_worker`);\n  await db.$executeRawUnsafe(`GRANT\
+          \ CREATE ON DATABASE ${quoted} TO workbench_worker`);\n  await db.$executeRawUnsafe('GRANT\
+          \ USAGE,CREATE ON SCHEMA public TO workbench_worker');\n  console.log('Application\
+          \ and worker database roles ready');\n})().catch(e => { console.error(e.message);\
+          \ process.exitCode = 1; }).finally(() => db.$disconnect());\n"
+        envsubst: false
+        permission: 420
+      - path: /opt/hui/bucket.cjs
+        template: "const { S3Client, HeadBucketCommand, CreateBucketCommand } = require('/app/node_modules/@aws-sdk/client-s3');\n\
+          const s3 = new S3Client({ region: process.env.S3_REGION, endpoint: process.env.S3_ENDPOINT,\
+          \ forcePathStyle: true });\n(async () => {\n  try { await s3.send(new HeadBucketCommand({\
+          \ Bucket: process.env.S3_BUCKET })); }\n  catch (e) {\n    if (e.$metadata?.httpStatusCode\
+          \ !== 404 && e.name !== 'NotFound' && e.name !== 'NoSuchBucket') throw e;\n\
+          \    await s3.send(new CreateBucketCommand({ Bucket: process.env.S3_BUCKET\
+          \ }));\n  }\n  console.log('Private original-file bucket ready');\n})().catch(e\
+          \ => { console.error(e.name); process.exitCode = 1; });\n"
+        envsubst: false
+        permission: 420
+  - name: api-runtime
+    template: PREBUILT_V2
+    spec:
+      source:
+        image: ghcr.io/sakuralaaa/hui-business-api:aeb1410141fbac2ec698bb86a4a74df85863bbdb
+        runAsUserID: 1000
+      ports:
+      - id: web
+        port: 3000
+        type: HTTP
+      portForwarding:
+        enabled: false
+      healthCheck:
+        type: HTTP
+        port: web
+        http:
+          path: /api/health
+      env:
+        ENCRYPTION_KEY:
+          default: ${HUI_ENCRYPTION_KEY}
+        PUBLIC_URL:
+          default: ${PUBLIC_ORIGIN}
+        COOKIE_SECURE:
+          default: 'true'
+        STORAGE_PATH:
+          default: /tmp/hui-objects
+        CATALOG_PATH:
+          default: /app/catalog
+        MODEL_HOST_ALLOWLIST:
+          default: api.openai.com,api.deepseek.com,dashscope.aliyuncs.com
+        S3_BUCKET:
+          default: hui-business-originals
+        S3_REGION:
+          default: us-east-1
+        S3_ENDPOINT:
+          default: http://rustfs.zeabur.internal:9000
+        AWS_ACCESS_KEY_ID:
+          default: ${RUSTFS_USERNAME}
+        AWS_SECRET_ACCESS_KEY:
+          default: ${RUSTFS_PASSWORD}
+        DATABASE_URL:
+          default: postgresql://workbench_app:${APP_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+        PORT:
+          default: '3000'
+  - name: worker-runtime
+    template: PREBUILT_V2
+    spec:
+      source:
+        image: ghcr.io/sakuralaaa/hui-business-api:aeb1410141fbac2ec698bb86a4a74df85863bbdb
+        command:
+        - node
+        - /opt/hui/worker.cjs
+        runAsUserID: 1000
+      ports:
+      - id: health
+        port: 3001
+        type: HTTP
+      portForwarding:
+        enabled: false
+      healthCheck:
+        type: TCP
+        port: health
+      env:
+        ENCRYPTION_KEY:
+          default: ${HUI_ENCRYPTION_KEY}
+        PUBLIC_URL:
+          default: ${PUBLIC_ORIGIN}
+        COOKIE_SECURE:
+          default: 'true'
+        STORAGE_PATH:
+          default: /tmp/hui-objects
+        CATALOG_PATH:
+          default: /app/catalog
+        MODEL_HOST_ALLOWLIST:
+          default: api.openai.com,api.deepseek.com,dashscope.aliyuncs.com
+        S3_BUCKET:
+          default: hui-business-originals
+        S3_REGION:
+          default: us-east-1
+        S3_ENDPOINT:
+          default: http://rustfs.zeabur.internal:9000
+        AWS_ACCESS_KEY_ID:
+          default: ${RUSTFS_USERNAME}
+        AWS_SECRET_ACCESS_KEY:
+          default: ${RUSTFS_PASSWORD}
+        DATABASE_URL:
+          default: postgresql://workbench_worker:${WORKER_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+        DATABASE_URL_WORKER:
+          default: postgresql://workbench_worker:${WORKER_DB_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+      configs:
+      - path: /opt/hui/worker.cjs
+        template: "// Keep the headless worker supervised and provide an internal\
+          \ health endpoint.\nconst { spawn } = require('node:child_process');\nconst\
+          \ { createServer } = require('node:http');\nconst child = spawn(process.execPath,\
+          \ ['/app/apps/api/dist/worker.js'], { stdio: 'inherit', env: process.env\
+          \ });\nconst health = createServer((req, res) => {\n  res.setHeader('Content-Type',\
+          \ 'application/json');\n  res.end(JSON.stringify({ processAlive: child.exitCode\
+          \ === null, queueReadiness: 'verify-through-task' }));\n}).listen(3001,\
+          \ '0.0.0.0');\nchild.on('exit', code => { health.close(); process.exit(code\
+          \ || 1); });\nfor (const signal of ['SIGINT','SIGTERM']) process.on(signal,\
+          \ () => child.kill(signal));\n"
+        envsubst: false
+        permission: 420
+  - name: web-runtime
+    template: PREBUILT_V2
+    spec:
+      source:
+        image: ghcr.io/sakuralaaa/hui-business-web:aeb1410141fbac2ec698bb86a4a74df85863bbdb
+      ports:
+      - id: web
+        port: 8080
+        type: HTTP
+      healthCheck:
+        type: TCP
+        port: web
+      portForwarding:
+        enabled: false
+      configs:
+      - path: /etc/nginx/conf.d/default.conf
+        template: "server {\n  listen 8080;\n  root /usr/share/nginx/html;\n  server_tokens\
+          \ off;\n  client_max_body_size 101m;\n  location /api/ {\n    proxy_pass\
+          \ http://api-runtime.zeabur.internal:3000;\n    proxy_set_header Host $host;\n\
+          \    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_set_header X-Forwarded-For\
+          \ $proxy_add_x_forwarded_for;\n    proxy_request_buffering off;\n    proxy_read_timeout\
+          \ 600s;\n  }\n  location / { try_files $uri $uri/ /index.html; }\n}\n"
+        envsubst: false
+        permission: 420

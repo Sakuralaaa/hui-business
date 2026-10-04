@@ -1,0 +1,107 @@
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: Hui business same-server daily backups
+spec:
+  description: Daily PostgreSQL archives and immutable originals on separate persistent
+    volumes. Off-server backups remain a separate deployment step.
+  services:
+  - name: database-backup
+    template: PREBUILT_V2
+    spec:
+      source:
+        image: postgres:18
+        command:
+        - /bin/sh
+        - /opt/hui/database-backup.sh
+      ports: []
+      portForwarding:
+        enabled: false
+      volumes:
+      - id: archives
+        dir: /backups
+      env:
+        POSTGRES_CONNECTION_STRING:
+          default: ${POSTGRES_CONNECTION_STRING}
+        POSTGRES_HOST:
+          default: ${POSTGRES_HOST}
+        POSTGRES_PORT:
+          default: ${POSTGRES_PORT}
+        POSTGRES_USERNAME:
+          default: ${POSTGRES_USERNAME}
+        POSTGRES_PASSWORD:
+          default: ${POSTGRES_PASSWORD}
+      configs:
+      - path: /opt/hui/database-backup.sh
+        template: "#!/bin/sh\nset -eu\nmkdir -p /backups\nwhile :; do\n  name=\"hui-$(date\
+          \ -u +%Y%m%dT%H%M%SZ)\"\n  archive=\"/backups/$name.dump\"\n  pg_dump --dbname\
+          \ \"$POSTGRES_CONNECTION_STRING\" --format=custom --file \"$archive.partial\"\
+          \n  pg_restore --list \"$archive.partial\" >/dev/null\n  mv \"$archive.partial\"\
+          \ \"$archive\"\n  echo \"DATABASE_BACKUP_SAVED $name\"\n  if [ ! -f /backups/restore-verified.txt\
+          \ ]; then\n    restore_db=\"hui_restore_$(date -u +%Y%m%d%H%M%S)\"\n   \
+          \ export PGHOST=\"$POSTGRES_HOST\" PGPORT=\"$POSTGRES_PORT\" PGUSER=\"$POSTGRES_USERNAME\"\
+          \ PGPASSWORD=\"$POSTGRES_PASSWORD\"\n    createdb \"$restore_db\"\n    pg_restore\
+          \ --dbname \"$restore_db\" \"$archive\"\n    count=\"$(psql --dbname \"\
+          $restore_db\" -At -c 'SELECT count(*) FROM \"Enterprise\"')\"\n    echo\
+          \ \"DATABASE_RESTORE_VERIFIED enterprise_count=$count\"\n    printf '%s\\\
+          n' \"$name enterprise_count=$count\" > /backups/restore-verified.txt\n \
+          \   dropdb \"$restore_db\"\n  fi\n  sleep 86400\ndone\n"
+        envsubst: false
+  - name: originals-backup
+    template: PREBUILT_V2
+    spec:
+      source:
+        image: ghcr.io/sakuralaaa/hui-business-api:aeb1410141fbac2ec698bb86a4a74df85863bbdb
+        command:
+        - node
+        - /opt/hui/objects-backup.cjs
+        runAsUserID: 0
+      ports:
+      - id: health
+        port: 3001
+        type: HTTP
+      portForwarding:
+        enabled: false
+      volumes:
+      - id: archives
+        dir: /backups
+      env:
+        S3_ENDPOINT:
+          default: http://rustfs.zeabur.internal:9000
+        S3_BUCKET:
+          default: hui-business-originals
+        S3_REGION:
+          default: us-east-1
+        AWS_ACCESS_KEY_ID:
+          default: ${RUSTFS_USERNAME}
+        AWS_SECRET_ACCESS_KEY:
+          default: ${RUSTFS_PASSWORD}
+      configs:
+      - path: /opt/hui/objects-backup.cjs
+        template: "const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('/app/node_modules/@aws-sdk/client-s3');\n\
+          const { mkdir, access, rename, writeFile } = require('node:fs/promises');\n\
+          const { createWriteStream } = require('node:fs');\nconst { pipeline } =\
+          \ require('node:stream/promises');\nconst { dirname, resolve } = require('node:path');\n\
+          const { createServer } = require('node:http');\nconst s3 = new S3Client({\
+          \ endpoint: process.env.S3_ENDPOINT, region: process.env.S3_REGION, forcePathStyle:\
+          \ true });\nlet status = { state: 'starting', lastSuccess: null, objects:\
+          \ 0 };\nasync function backup() {\n  status.state = 'running'; let continuation,\
+          \ objects = 0;\n  do {\n    const page = await s3.send(new ListObjectsV2Command({\
+          \ Bucket: process.env.S3_BUCKET, ContinuationToken: continuation }));\n\
+          \    for (const item of page.Contents || []) {\n      if (!item.Key || !/^[a-zA-Z0-9/_\\\
+          .-]+$/.test(item.Key)) throw Error('Unsafe object key');\n      const path\
+          \ = resolve('/backups/objects', item.Key);\n      if (!path.startsWith('/backups/objects/'))\
+          \ throw Error('Unsafe backup path');\n      try { await access(path); }\
+          \ catch {\n        await mkdir(dirname(path), { recursive: true });\n  \
+          \      const file = await s3.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET,\
+          \ Key: item.Key }));\n        await pipeline(file.Body, createWriteStream(path\
+          \ + '.partial'));\n        await rename(path + '.partial', path);\n    \
+          \  }\n      objects++;\n    }\n    continuation = page.NextContinuationToken;\n\
+          \  } while (continuation);\n  status = { state: 'ready', lastSuccess: new\
+          \ Date().toISOString(), objects };\n  await writeFile('/backups/objects-status.json',\
+          \ JSON.stringify(status));\n  console.log('ORIGINALS_BACKUP_SAVED objects='\
+          \ + objects);\n}\nasync function run() { try { await backup(); } catch(e)\
+          \ { status.state = 'failed'; console.error('Originals backup failed: ' +\
+          \ e.name); } setTimeout(run, 86400000); }\ncreateServer((req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(status));}).listen(3001,'0.0.0.0');\n\
+          run();\n"
+        envsubst: false

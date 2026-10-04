@@ -6,6 +6,8 @@
 
 按照 [部署说明](docs/deployment.md) 配置服务器的 `.env`，拉取 GitHub Actions 生成的 API / Web 镜像，运行 Docker Compose；初始化管理员后登录。切换到两个演示企业查看模拟数据，真实企业从创建店铺开始。
 
+Zeabur 试用环境已上线：[打开工作台](https://hui-business-sakuralaaa.zeabur.app)。镜像支持 AMD64 / ARM64，[Zeabur 部署记录](docs/zeabur-deployment.md) 说明实际配置、验收与备份范围。
+
 首版操作顺序：创建采集任务 → 签发 60 分钟上传凭据 → 网页或 Accio 上传 → 查看字段映射和差异 → 人工确认 → 更新经营指标 → 查看证据与行动草稿。
 
 ## 当前实现

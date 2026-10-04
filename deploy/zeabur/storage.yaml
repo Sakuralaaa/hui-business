@@ -1,0 +1,42 @@
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: Hui business private storage
+spec:
+  description: Private S3 storage adapted from official RustFS template 7FG0WI
+  services:
+  - name: rustfs
+    icon: https://cdn.zeabur.com/templates/icon/rustfs-logo-square.png
+    template: PREBUILT_V2
+    spec:
+      id: rustfs
+      source:
+        image: rustfs/rustfs:1.0.1
+      ports:
+      - id: web
+        port: 9000
+        type: HTTP
+      - id: console
+        port: 9001
+        type: HTTP
+      volumes:
+      - id: data
+        dir: /data
+      instructions:
+      - title: Default Username (S3 Access Key ID)
+        content: ${RUSTFS_USERNAME}
+      - title: Default Password (S3 Secret Access Key)
+        content: ${RUSTFS_PASSWORD}
+      env:
+        RUSTFS_ACCESS_KEY:
+          default: rustfs
+        RUSTFS_PASSWORD:
+          default: ${RUSTFS_SECRET_KEY}
+          expose: true
+        RUSTFS_SECRET_KEY:
+          default: ${PASSWORD}
+        RUSTFS_USERNAME:
+          default: ${RUSTFS_ACCESS_KEY}
+          expose: true
+      portForwarding:
+        enabled: false
