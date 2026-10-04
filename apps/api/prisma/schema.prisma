@@ -1,0 +1,336 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model Enterprise {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  mode String @default("real")
+  timezone String @default("Asia/Shanghai")
+  currency String @default("CNY")
+  createdAt DateTime @default(now())
+  members Membership[]
+  shops Shop[]
+}
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  email String @unique
+  name String
+  passwordHash String
+  createdAt DateTime @default(now())
+  memberships Membership[]
+  sessions Session[]
+}
+model Membership {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  userId String @db.Uuid
+  role String
+  shopIds String[]
+  enterprise Enterprise @relation(fields:[enterpriseId],references:[id])
+  user User @relation(fields:[userId],references:[id])
+  @@unique([enterpriseId,userId])
+}
+model Session {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  tokenHash String @unique
+  expiresAt DateTime
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+}
+model Invite {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  email String
+  role String
+  shopIds String[]
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt DateTime?
+}
+model Shop {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  name String
+  platform String
+  capabilities Json
+  status String @default("unverified")
+  enterprise Enterprise @relation(fields:[enterpriseId],references:[id])
+  collections CollectionRequest[]
+  batches ImportBatch[]
+  records BusinessRecord[]
+  actions ActionDraft[]
+  @@unique([enterpriseId,id])
+}
+model CollectionRequest {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  datasets String[]
+  allowedMethods String[]
+  periodStart DateTime?
+  periodEnd DateTime?
+  timezone String?
+  requiredFields String[]
+  notes String
+  createdBy String @db.Uuid
+  createdAt DateTime @default(now())
+  shop Shop @relation(fields:[enterpriseId,shopId],references:[enterpriseId,id])
+  grants UploadGrant[]
+  batches ImportBatch[]
+  @@unique([enterpriseId,shopId,id])
+}
+model UploadGrant {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  collectionRequestId String @db.Uuid
+  tokenHash String @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  request CollectionRequest @relation(fields:[enterpriseId,shopId,collectionRequestId],references:[enterpriseId,shopId,id])
+  @@index([enterpriseId,shopId])
+}
+model ImportBatch {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  collectionRequestId String @db.Uuid
+  grantId String @db.Uuid
+  state String @default("uploading")
+  manifest Json
+  mapping Json
+  previewVersion Int @default(0)
+  previewHash String?
+  summary Json?
+  error String?
+  confirmedBy String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  shop Shop @relation(fields:[enterpriseId,shopId],references:[enterpriseId,id])
+  request CollectionRequest @relation(fields:[enterpriseId,shopId,collectionRequestId],references:[enterpriseId,shopId,id])
+  files ImportFile[]
+  @@unique([enterpriseId,shopId,id])
+  @@index([enterpriseId,shopId,createdAt])
+}
+model ImportFile {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  batchId String @db.Uuid
+  filename String
+  dataset String
+  spec Json
+  sha256 String
+  size Int
+  storageKey String?
+  uploadedAt DateTime?
+  batch ImportBatch @relation(fields:[enterpriseId,shopId,batchId],references:[enterpriseId,shopId,id])
+  rows StagingRow[]
+  @@unique([enterpriseId,shopId,id])
+  @@unique([batchId,filename])
+}
+model StagingRow {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  fileId String @db.Uuid
+  rowNumber Int
+  raw Json
+  canonical Json?
+  errors String[]
+  decision String @default("unmapped")
+  baseRecordId String? @db.Uuid
+  baseVersion Int?
+  file ImportFile @relation(fields:[enterpriseId,shopId,fileId],references:[enterpriseId,shopId,id])
+  @@unique([fileId,rowNumber])
+  @@index([enterpriseId,shopId,fileId])
+}
+model MappingProfile {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  name String
+  dataset String
+  version Int
+  columnsHash String
+  mapping Json
+  createdAt DateTime @default(now())
+  @@unique([enterpriseId,shopId,name,version])
+}
+model BusinessRecord {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  dataset String
+  sourcePlatform String
+  externalId String
+  data Json
+  version Int @default(1)
+  sourceUpdatedAt DateTime?
+  sourceRowId String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  shop Shop @relation(fields:[enterpriseId,shopId],references:[enterpriseId,id])
+  versions RecordVersion[]
+  @@unique([enterpriseId,shopId,id])
+  @@unique([enterpriseId,shopId,dataset,sourcePlatform,externalId])
+  @@index([enterpriseId,shopId,dataset,updatedAt])
+}
+model RecordVersion {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  recordId String @db.Uuid
+  version Int
+  data Json
+  sourceRowId String? @db.Uuid
+  reason String
+  createdAt DateTime @default(now())
+  record BusinessRecord @relation(fields:[enterpriseId,shopId,recordId],references:[enterpriseId,shopId,id])
+  @@unique([recordId,version])
+}
+model EntityLink {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  fromId String @db.Uuid
+  toId String @db.Uuid
+  kind String
+  confirmedBy String @db.Uuid
+  createdAt DateTime @default(now())
+  @@unique([enterpriseId,shopId,fromId,toId,kind])
+}
+model InventoryMovement {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  recordId String @db.Uuid
+  delta String
+  reservedDelta String
+  reason String
+  referenceId String?
+  createdBy String @db.Uuid
+  createdAt DateTime @default(now())
+}
+model DatasetSnapshot {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  fingerprint String
+  records Json
+  createdAt DateTime @default(now())
+  @@unique([enterpriseId,shopId,fingerprint])
+}
+model AnalysisRun {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  snapshotId String @db.Uuid
+  createdBy String @db.Uuid
+  state String @default("queued")
+  kind String
+  parameters Json
+  metrics Json?
+  insights Json?
+  model String?
+  templateVersion String @default("analysis-1.0")
+  error String?
+  createdAt DateTime @default(now())
+  @@index([enterpriseId,shopId,createdAt])
+}
+model ActionDraft {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  kind String
+  recordId String? @db.Uuid
+  baseVersion Int?
+  sourceHash String?
+  payload Json
+  evidence Json
+  status String @default("draft")
+  approvedBy String? @db.Uuid
+  appliedVersion Int?
+  previousData Json?
+  createdAt DateTime @default(now())
+  shop Shop @relation(fields:[enterpriseId,shopId],references:[enterpriseId,id])
+}
+model Asset {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  productId String? @db.Uuid
+  filename String
+  storageKey String
+  sha256 String
+  kind String
+  metadata Json
+  createdAt DateTime @default(now())
+}
+model ModelConfig {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @unique @db.Uuid
+  provider String
+  baseUrl String
+  model String
+  encryptedKey String
+  monthlyBudget Decimal @db.Decimal(20,8)
+  inputPrice Decimal @db.Decimal(20,8)
+  outputPrice Decimal @db.Decimal(20,8)
+  maxTokens Int @default(1800)
+  concurrency Int @default(2)
+  updatedAt DateTime @updatedAt
+}
+model ModelCall {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  runId String? @db.Uuid
+  model String
+  state String
+  inputTokens Int?
+  outputTokens Int?
+  reservedCost Decimal @db.Decimal(20,8)
+  cost Decimal? @db.Decimal(20,8)
+  costKind String @default("estimated")
+  error String?
+  createdAt DateTime @default(now())
+}
+model Audit {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String? @db.Uuid
+  actorId String
+  action String
+  targetId String
+  details Json
+  createdAt DateTime @default(now())
+  @@index([enterpriseId,createdAt])
+}
+model Idempotency {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  key String
+  requestHash String
+  response Json
+  createdAt DateTime @default(now())
+  @@unique([enterpriseId,shopId,key])
+}
+model WorkItem {
+  id String @id @default(uuid()) @db.Uuid
+  enterpriseId String @db.Uuid
+  shopId String @db.Uuid
+  kind String
+  payload Json
+  state String @default("pending")
+  attempts Int @default(0)
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

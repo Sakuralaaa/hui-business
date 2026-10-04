@@ -1,0 +1,20 @@
+{
+  "contract_version": "1.0",
+  "collection_request_id": "替换为任务UUID",
+  "collector": "accio_work",
+  "source_platform": "alibaba_com",
+  "exported_at": "2026-10-05T10:00:00+08:00",
+  "files": [{
+    "filename": "orders-original.csv",
+    "dataset": "orders",
+    "acquisition_method": "native_export",
+    "period_start": null,
+    "period_end_exclusive": null,
+    "source_timezone": null,
+    "source_expected_rows": null,
+    "completeness": "unknown",
+    "grain": "record",
+    "value_semantics": "event",
+    "limitations": ["按实际取得范围填写；此示例不代表平台可导出能力"]
+  }]
+}

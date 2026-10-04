@@ -1,0 +1,126 @@
+[
+  {
+    "name": "nono",
+    "repo": "p-j-jx/Nono",
+    "commit": "c9c8f1351167c63ecf263a11e133ea7e96640efd",
+    "license": "MIT",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "f812755674a35b35595ddf531134d7491e99c54262f2fbfcfaf36f821d7df97b"
+      },
+      {
+        "path": "src/lib/listing-checker.ts",
+        "sha256": "160b43623deb63c189927efa001b691c48ca4b395691888653e8cfa0cced6607"
+      },
+      {
+        "path": "src/lib/competitor-analysis.ts",
+        "sha256": "f07a31abe9b87a86a67ea549b9de49155813649278cec990b6b4baa128a569cc"
+      },
+      {
+        "path": "src/lib/platform-export.ts",
+        "sha256": "4ad0a9036c0b494d56f21dea38d2269b8b8413d3b098847a77b243e3f713b21f"
+      }
+    ]
+  },
+  {
+    "name": "trademind",
+    "repo": "lien0219/trademind-ai",
+    "commit": "0ed2fd9e41f8ec7b1ff4066a50b1986b7a449745",
+    "license": "Apache-2.0",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "26e7bc6f83377d315451f5f446c778c02bb903372810593b6f1e281866a9bbb6"
+      },
+      {
+        "path": "backend/internal/modules/product/ai_apply.go",
+        "sha256": "f424d0147b89bcbd306953e3b942682c25b463d9fcdff370240217b1f1aedd95"
+      },
+      {
+        "path": "backend/internal/providers/ai/provider.go",
+        "sha256": "edde258945be1f256265df9afffc02b8a0f919bed12d7ce9d016a190067a66cf"
+      }
+    ]
+  },
+  {
+    "name": "ecommerce-knowledge",
+    "repo": "kangise/ecommerce-ai-skills",
+    "commit": "b1a727c3b2c2d27f2793e0d0fcd655ea446ba635",
+    "license": "CC0-1.0",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "977372677acaaaa0f419556e5a24d8c869534c25d8f4f8d3db4df888c095bd9d"
+      },
+      {
+        "path": "dist/prompts.json",
+        "sha256": "0b87859a6f6a1af45253f5c94ebe00acf584f2675d6992c96daba752476160d3"
+      }
+    ]
+  },
+  {
+    "name": "ecommerce-images",
+    "repo": "xianyu110/ecommerce-image-skills",
+    "commit": "9dd0df0d58dbf7e970cb4c3e14d5bcae01c7e9ff",
+    "license": "MIT",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "afb520f330a5123b6e276ecfa42e737f342fde64f29a7d60206c90a0d0e085e2"
+      },
+      {
+        "path": "README.md",
+        "sha256": "f2a8b7ef0c20451ea511e3dd703e627a8eb11178dc4e8b34bbe88a5a53ea53fd"
+      },
+      {
+        "path": "skills/amazon-white-background/SKILL.md",
+        "sha256": "e48de25e0d72a42a68af7a06c86c96cde470233a3b9a9a16aa6bde8427359c62"
+      },
+      {
+        "path": "skills/selling-point-infographic/SKILL.md",
+        "sha256": "75635b58334c9433e31d3c288a3ab9ef7d1fad6056b4311944bbfe4db85f263f"
+      }
+    ]
+  },
+  {
+    "name": "amazon-reports",
+    "repo": "zach22-1999/amazon-skills",
+    "commit": "5c790ea5579a29516ac6506600c7714cd8112d0a",
+    "license": "MIT",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "9878dc9ec255fedb1dd8a1430411977faebd88dee437aa3420ec25c0b576c539"
+      },
+      {
+        "path": "README.md",
+        "sha256": "ab1cab4f035f2ff150ad844601905aea368f0c03532729c97c1fdbd19db16096"
+      },
+      {
+        "path": "skills/zach-feature-demand-validator/SKILL.md",
+        "sha256": "e166fd46745a758a066091d40324f2b2b04c3514a3422f081584da24f8cb5832"
+      },
+      {
+        "path": "skills/zach-search-term-report-analyzer/SKILL.md",
+        "sha256": "e127e699e1572f312c447c1c5fab66504d5685b99df28849217149eb91a58ecc"
+      }
+    ]
+  },
+  {
+    "name": "accio",
+    "repo": "AccioWork/agent-skills",
+    "commit": "07c9946963d6a13692bd400ddb88c994d3cdba52",
+    "license": "MIT-0",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "1d29df5fe0918b16647128b5a9791bca2f5d96f7453c60349b6713f58d69ca37"
+      },
+      {
+        "path": "README.md",
+        "sha256": "a0fc209760023e3e691b1ac5c74e9f8d2f5e43158af48f9fa00e8f73e572ece7"
+      }
+    ]
+  }
+]

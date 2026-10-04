@@ -1,0 +1,16 @@
+{
+  "name": "crossborder-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "workspaces": ["packages/core", "apps/api", "apps/web"],
+  "scripts": {
+    "build": "npm run build -w @workbench/core && npm run build -w @workbench/api && npm run build -w @workbench/web",
+    "typecheck": "npm run build -w @workbench/core && npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
+    "db:deploy": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts"
+  },
+  "devDependencies": {"prisma":"6.5.0","tsx":"4.19.3","typescript":"5.8.2","vitest":"3.0.9","@types/node":"22.13.10"}
+}

@@ -1,0 +1,16 @@
+import { describe,it,expect } from 'vitest';
+import { normalizeRow,suggestMapping,classifyChange,manifestSchema,calculateMetrics,quoteScenario,exportContent } from '../packages/core/src';
+describe('import correctness',()=>{
+ it('keeps text IDs and zero distinct from missing',()=>{const map=suggestMapping(['external_id','name','sku','unit','currency','cost'],'products');const r=normalizeRow({external_id:'00001234567890123456',name:'Cup',sku:'001',unit:'piece',currency:'USD',cost:'0'},map,'products');expect(r.errors).toEqual([]);expect(r.data?.external_id).toBe('00001234567890123456');expect(r.data?.cost).toBe('0');});
+ it('rejects potentially lossy numeric identifiers',()=>{const r=normalizeRow({external_id:12345678901234567890},suggestMapping(['external_id'],'products'),'products');expect(r.errors.join()).toContain('精度');});
+ it('does not overwrite newer source records',()=>{expect(classifyChange({data:{external_id:'A',status:'paid',source_updated_at:'2026-10-05T00:00:00Z'},sourceUpdatedAt:new Date('2026-10-05T00:00:00Z')},{external_id:'A',status:'draft',source_updated_at:'2026-10-01T00:00:00Z'})).toBe('stale');});
+ it('requires review without source time',()=>{expect(classifyChange({data:{external_id:'A',total:'1'},sourceUpdatedAt:null},{external_id:'A',total:'2'})).toBe('conflict');});
+ it('rejects manifest traversal and duplicates',()=>{const file={filename:'../orders.csv',dataset:'orders',acquisition_method:'manual',size:10,sha256:'a'.repeat(64)};expect(manifestSchema.safeParse({contract_version:'1.0',collection_request_id:'00000000-0000-4000-8000-000000000001',collector:'test',source_platform:'other',exported_at:'2026-10-05T00:00:00Z',files:[file]}).success).toBe(false);});
+});
+describe('metrics and safe export',()=>{
+ it('uses order headers once, and blocks profit when costs missing',()=>{const result=calculateMetrics([{id:'1',dataset:'orders',data:{external_id:'O',ordered_at:'2026-10-01T00:00:00Z',status:'completed',currency:'USD',total:'100',refund_total:'10'}},{id:'2',dataset:'order_lines',data:{order_id:'O',total:'100'}},{id:'3',dataset:'daily',data:{sales:'100',currency:'USD'}}],'2026-10-05T00:00:00Z');expect(result.currencies[0]?.revenue).toBe('90.00');expect(result.currencies[0]?.contribution_profit).toBeNull();});
+ it('does not invent attributed revenue or zero-denominator ratios',()=>{const result=calculateMetrics([{id:'1',dataset:'ads',data:{currency:'USD',date:'2026-10-01',spend:'20',impressions:'0',clicks:'0'}}],'2026-10-05T00:00:00Z');expect(result.currencies[0]?.ads.roas).toBeNull();expect(result.currencies[0]?.ads.ctr).toBeNull();});
+ it('keeps deposits separate from revenue',()=>{const result=calculateMetrics([{id:'1',dataset:'payments',data:{currency:'USD',occurred_at:'2026-10-01T00:00:00Z',amount:'50',direction:'in',kind:'deposit'}}],'2026-10-05T00:00:00Z');expect(result.currencies[0]?.revenue).toBe('0.00');expect(result.currencies[0]?.cash_in).toBe('50.00');});
+ it('computes scenario using decimals',()=>{expect(quoteScenario({quantity:'3',unitCost:'0.1',shipping:'0',fees:'0',targetMargin:'0',exchangeRate:'1'}).totalCost).toBe('0.3000');});
+ it('neutralizes spreadsheet formula exports',()=>{expect(exportContent({title:'=HYPERLINK("evil")',description:'safe'},'csv')).toContain("'=HYPERLINK");});
+});

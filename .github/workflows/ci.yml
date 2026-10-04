@@ -1,0 +1,82 @@
+name: Validate and publish
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-alpine
+        env: {POSTGRES_PASSWORD: ci_password, POSTGRES_DB: workbench}
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:ci_password@localhost:5432/workbench
+      DATABASE_URL_ADMIN: postgresql://postgres:ci_password@localhost:5432/workbench
+      BOOTSTRAP_EMAIL: ci@example.invalid
+      BOOTSTRAP_PASSWORD: ci-demo-password-only
+      ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      COOKIE_SECURE: 'false'
+      PUBLIC_URL: http://localhost:3000
+      STORAGE_PATH: /tmp/workbench-objects
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: npm install --no-audit --no-fund
+      - run: npm run db:generate
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - run: npm run db:deploy && npm run seed
+      - name: API, importer, RLS and external uploader integration
+        run: |
+          psql "$DATABASE_URL_ADMIN" -c "ALTER ROLE workbench_app LOGIN PASSWORD 'app_ci_password'; ALTER ROLE workbench_worker LOGIN PASSWORD 'worker_ci_password'; GRANT USAGE,CREATE ON SCHEMA public TO workbench_worker;"
+          DATABASE_URL=postgresql://workbench_app:app_ci_password@localhost:5432/workbench node apps/api/dist/main.js > /tmp/api.log 2>&1 &
+          DATABASE_URL=postgresql://workbench_worker:worker_ci_password@localhost:5432/workbench node apps/api/dist/worker.js > /tmp/worker.log 2>&1 &
+          python3 tests/integration.py
+      - name: Save schema, lockfile and diagnostic logs
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp package-lock.json artifacts/ || true
+          node node_modules/prisma/build/index.js migrate diff --from-empty --to-schema-datamodel apps/api/prisma/schema.prisma --script > artifacts/0001_initial.sql || true
+          cp /tmp/api.log /tmp/worker.log artifacts/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: validation-artifacts, path: artifacts/}
+  images:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: |
+            ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}
+            ghcr.io/sakuralaaa/hui-business-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          push: true
+          tags: |
+            ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}
+            ghcr.io/sakuralaaa/hui-business-web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
