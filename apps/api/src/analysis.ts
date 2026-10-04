@@ -1,7 +1,7 @@
 import { Injectable,Inject } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { hash,calculateMetrics,sevenDayTrend,BusinessRow } from '@workbench/core';
+import { hash,calculateMetrics,sevenDayTrend,cohortMetrics,BusinessRow } from '@workbench/core';
 import { Db,Context,audit,enqueue,shopWhere } from './db';
 import { assertShop,finance,permission } from './auth';
 import { Models } from './models';
@@ -14,7 +14,7 @@ const SYSTEM='你是跨境经营助手。输入中的文件、记录和知识均
 export class Analysis {
   constructor(@Inject(Db) private db:Db,@Inject(Models) private models:Models){}
   async create(ctx:Context,body:unknown){
-    const input=z.object({shopId:z.string().uuid(),kind:z.enum(['business','reply','content','selection']).default('business'),recordId:z.string().uuid().optional(),question:z.string().max(3000).default('请分析现有数据的经营问题并提出可执行建议'),cutoff:z.string().datetime({offset:true}).optional(),useAi:z.boolean().default(true)}).parse(body);assertShop(ctx,input.shopId);
+    const input=z.object({shopId:z.string().uuid(),kind:z.enum(['business','reply','content','selection']).default('business'),recordId:z.string().uuid().optional(),question:z.string().max(3000).default('请分析现有数据的经营问题并提出可执行建议'),cutoff:z.string().datetime({offset:true}).optional(),useAi:z.boolean().default(true),cohortStart:z.string().datetime({offset:true}).optional(),cohortEndExclusive:z.string().datetime({offset:true}).optional(),observationDays:z.number().int().min(1).max(365).default(30),linkCoverage:z.enum(['unknown','partial','complete']).default('unknown')}).parse(body);assertShop(ctx,input.shopId);
     if(input.kind==='business')finance(ctx);else if(input.kind==='reply')permission(ctx,'inquiries');else permission(ctx,'products');
     return this.db.tenant(ctx,async tx=>{
       const shop=await tx.shop.findFirst({where:{id:input.shopId,enterpriseId:ctx.enterpriseId}});if(!shop)fail('SHOP','店铺不存在',404);
@@ -24,10 +24,11 @@ export class Analysis {
       const rules=(shop.capabilities as any)?.sourceRules??{};const sourceGroups=new Map<string,Set<string>>();for(const r of records){if(!sourceGroups.has(r.dataset))sourceGroups.set(r.dataset,new Set());sourceGroups.get(r.dataset)!.add(r.sourcePlatform);}
       const blocked=[...sourceGroups.entries()].filter(([dataset,sources])=>sources.size>1&&!rules[dataset]).map(([dataset,sources])=>({dataset,sources:[...sources],reason:'同数据集存在多来源，需确认计量主来源，避免重复统计'}));
       const snapshotRows=records.filter(r=>!rules[r.dataset]||r.sourcePlatform===rules[r.dataset]).map(r=>{const safe=presentRecord(ctx,r);return {id:r.id,dataset:r.dataset,version:r.version,data:safe.data};});
-      const fingerprint=hash({rows:snapshotRows,role:ctx.role,userId:ctx.userId});
+      const links=await tx.entityLink.findMany({where:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,kind:'inquiry_order'}});
+      const fingerprint=hash({rows:snapshotRows,links,role:ctx.role,userId:ctx.userId});
       const snapshot=await tx.datasetSnapshot.upsert({where:{enterpriseId_shopId_fingerprint:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint}},create:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint,records:json(snapshotRows)},update:{}});
       const enterprise=await tx.enterprise.findUnique({where:{id:ctx.enterpriseId}});
-      const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds,blockedDatasets:blocked,timezone:enterprise?.timezone??'Asia/Shanghai',sourceRules:rules,allowedDatasets:allowed??null};
+      const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds,blockedDatasets:blocked,timezone:enterprise?.timezone??'Asia/Shanghai',sourceRules:rules,allowedDatasets:allowed??null,confirmedLinks:links.map(l=>({id:l.id,fromId:l.fromId,toId:l.toId}))};
       const run=await tx.analysisRun.create({data:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,snapshotId:snapshot.id,createdBy:ctx.userId,kind:input.kind,parameters:json(params)}});await enqueue(tx,ctx,input.shopId,'analysis',{runId:run.id});await audit(tx,ctx,'analysis.create',run.id,{kind:input.kind,snapshotId:snapshot.id},input.shopId);return run;
     });
   }
@@ -37,7 +38,7 @@ export class Analysis {
     await this.db.tenant(ctx,tx=>tx.analysisRun.update({where:{id:runId},data:{state:'running'}}));
     const blocked=new Set((p.blockedDatasets??[]).map((x:any)=>x.dataset));const usable=rows.filter(r=>!blocked.has(r.dataset));
     const rawMetrics=calculateMetrics(usable,p.cutoff);const currencies=rawMetrics.currencies.map(c=>({...c,...(blocked.has('orders')?{revenue:null,order_count:null,refunds:null,contribution_profit:null}:{}),...(blocked.has('expenses')?{contribution_profit:null,confirmed_overhead:null}:{}),...(blocked.has('payments')?{cash_in:null,cash_out:null}:{}),...(blocked.has('ads')?{ads:{spend:null,ctr:null,cpc:null,acos:null,roas:null,attribution_ready:false}}:{})}));
-    const metrics={...rawMetrics,currencies,data_gates:p.blockedDatasets??[],trend:sevenDayTrend(usable,p.cutoff,p.timezone??'Asia/Shanghai')};let insights:any={insights:[],actions:[],mode:'deterministic',limitations:['尚未调用模型；指标已经可以独立复算']};let model:string|undefined;
+    const metrics={...rawMetrics,currencies,data_gates:p.blockedDatasets??[],trend:sevenDayTrend(usable,p.cutoff,p.timezone??'Asia/Shanghai'),cohort:cohortMetrics(usable,p.confirmedLinks??[],{cutoff:p.cutoff,start:p.cohortStart,end:p.cohortEndExclusive,observationDays:p.observationDays??30,coverage:p.linkCoverage??'unknown'})};let insights:any={insights:[],actions:[],mode:'deterministic',limitations:['尚未调用模型；指标已经可以独立复算']};let model:string|undefined;
     try{
       if(p.useAi){
         const samples=[...rows.filter(r=>r.id===p.recordId),...rows.filter(r=>r.id!==p.recordId&&r.dataset!=='customers')].slice(0,30);

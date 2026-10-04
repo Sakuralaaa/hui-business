@@ -31,7 +31,8 @@ export class Imports {
           if(chunk.length===1000){await this.db.tenant(ctx,tx=>tx.stagingRow.createMany({data:chunk}));chunk=[];}
         }}if(chunk.length)await this.db.tenant(ctx,tx=>tx.stagingRow.createMany({data:chunk}));
         }finally{if(paths[0]!==original)await rm(dir,{recursive:true,force:true});}
-        mappings[f.id]=suggestMapping(headers,f.dataset as Dataset);
+        const saved=await this.db.tenant(ctx,tx=>tx.mappingProfile.findFirst({where:{enterpriseId:ctx.enterpriseId,shopId:b.shopId,dataset:f.dataset,columnsHash:hash(headers)},orderBy:{version:'desc'}}));
+        mappings[f.id]=saved?saved.mapping as unknown as Mapping:{...suggestMapping(headers,f.dataset as Dataset),timezone:(f.spec as any).source_timezone??null};
       }
       await this.db.tenant(ctx,tx=>tx.importBatch.update({where:{id:batchId},data:{mapping:json(mappings)}}));await this.previewBuild(ctx,batchId);
     }catch(e){await this.db.tenant(ctx,tx=>tx.importBatch.update({where:{id:batchId},data:{state:'rejected',error:readable(e)}}));throw e;}
@@ -61,6 +62,7 @@ export class Imports {
         const rows=await this.db.tenant(ctx,tx=>tx.stagingRow.findMany({where:{fileId:f.id},orderBy:{id:'asc'},take:1000,...(cursor?{cursor:{id:cursor},skip:1}:{})}));if(!rows.length)break;
         const decisions=rows.map(r=>{
           const normalized=normalizeRow(r.raw as Record<string,unknown>,mapping,f.dataset as Dataset);
+          if(normalized.data&&spec.acquisition_method==='ai_report')normalized.data.kind='ai_report';
           let decision='error';const prior=normalized.data?currentById.get(String(normalized.data.external_id)):undefined;
           if(mapping.excluded_rows.includes(r.id))decision='excluded';
           else if(normalized.data){
@@ -107,6 +109,9 @@ export class Imports {
       await tx.importBatch.update({where:{id},data:{state:'committing'}});
       const manifest=b.manifest as unknown as Manifest;let count=0;
       for(const f of b.files){
+        const firstRow=await tx.stagingRow.findFirst({where:{fileId:f.id},orderBy:{rowNumber:'asc'}});const profileName=`${manifest.source_platform}:${f.dataset}:${f.filename}`;
+        const savedMapping={...(b.mapping as any)[f.id],excluded_rows:[]};const latestProfile=await tx.mappingProfile.findFirst({where:{enterpriseId:ctx.enterpriseId,shopId:b.shopId,name:profileName},orderBy:{version:'desc'}});
+        if(firstRow&&(!latestProfile||hash(latestProfile.mapping)!==hash(savedMapping)))await tx.mappingProfile.create({data:{enterpriseId:ctx.enterpriseId,shopId:b.shopId,name:profileName,dataset:f.dataset,version:(latestProfile?.version??0)+1,columnsHash:hash(Object.keys(firstRow.raw as any)),mapping:json(savedMapping)}});
         const rows=await tx.stagingRow.findMany({where:{fileId:f.id,decision:{in:['new','update']}}});
         for(const row of rows){
           const data=row.canonical as Record<string,any>;const identity={enterpriseId:ctx.enterpriseId,shopId:b.shopId,dataset:f.dataset,sourcePlatform:manifest.source_platform,externalId:String(data.external_id)};

@@ -1,5 +1,5 @@
 import { describe,it,expect } from 'vitest';
-import { normalizeRow,suggestMapping,classifyChange,manifestSchema,calculateMetrics,quoteScenario,exportContent } from '../packages/core/src';
+import { normalizeRow,suggestMapping,classifyChange,manifestSchema,calculateMetrics,quoteScenario,exportContent,sevenDayTrend,cohortMetrics } from '../packages/core/src';
 describe('import correctness',()=>{
  it('keeps text IDs and zero distinct from missing',()=>{const map=suggestMapping(['external_id','name','sku','unit','currency','cost'],'products');const r=normalizeRow({external_id:'00001234567890123456',name:'Cup',sku:'001',unit:'piece',currency:'USD',cost:'0'},map,'products');expect(r.errors).toEqual([]);expect(r.data?.external_id).toBe('00001234567890123456');expect(r.data?.cost).toBe('0');});
  it('rejects potentially lossy numeric identifiers',()=>{const r=normalizeRow({external_id:12345678901234567890},suggestMapping(['external_id'],'products'),'products');expect(r.errors.join()).toContain('精度');});
@@ -13,4 +13,7 @@ describe('metrics and safe export',()=>{
  it('keeps deposits separate from revenue',()=>{const result=calculateMetrics([{id:'1',dataset:'payments',data:{currency:'USD',occurred_at:'2026-10-01T00:00:00Z',amount:'50',direction:'in',kind:'deposit'}}],'2026-10-05T00:00:00Z');expect(result.currencies[0]?.revenue).toBe('0.00');expect(result.currencies[0]?.cash_in).toBe('50.00');});
  it('computes scenario using decimals',()=>{expect(quoteScenario({quantity:'3',unitCost:'0.1',shipping:'0',fees:'0',targetMargin:'0',exchangeRate:'1'}).totalCost).toBe('0.3000');});
  it('neutralizes spreadsheet formula exports',()=>{expect(exportContent({title:'=HYPERLINK("evil")',description:'safe'},'csv')).toContain("'=HYPERLINK");});
+ it('compares timestamp instants with timezone offsets',()=>{const r=calculateMetrics([{id:'1',dataset:'orders',data:{ordered_at:'2026-10-05T07:00:00+08:00',status:'paid',currency:'USD',total:'20',refund_total:'0',cost_total:'0',fee_total:'0'}}],'2026-10-05T00:00:00Z');expect(r.currencies[0]?.revenue).toBe('20.00');});
+ it('requires fourteen complete dates for a trend',()=>{const r=sevenDayTrend([{id:'1',dataset:'daily',data:{date:'2026-10-01',currency:'USD',sales:'10'}}],'2026-10-05T10:00:00Z','Asia/Shanghai');expect(r[0]?.ready).toBe(false);expect(r[0]?.growth).toBeNull();});
+ it('requires confirmed links and complete coverage for cohort conversion',()=>{const rows=[{id:'i',dataset:'inquiries',data:{received_at:'2026-08-01T00:00:00Z',status:'won'}},{id:'o',dataset:'orders',data:{ordered_at:'2026-08-10T00:00:00Z',status:'paid'}}];expect(cohortMetrics(rows,[{fromId:'i',toId:'o'}],{cutoff:'2026-10-05T00:00:00Z',observationDays:30,coverage:'partial'}).conversion_rate).toBeNull();expect(cohortMetrics(rows,[{fromId:'i',toId:'o'}],{cutoff:'2026-10-05T00:00:00Z',observationDays:30,coverage:'complete'}).conversion_rate).toBe('1.000000');});
 });

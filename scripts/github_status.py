@@ -6,6 +6,9 @@ import pathlib
 import subprocess
 import urllib.request
 import zipfile
+import sys
+import urllib.parse
+if hasattr(sys.stdout,'reconfigure'):sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -46,6 +49,8 @@ def main():
                         target=pathlib.Path('apps/api/prisma/migrations/0001_initial.sql');target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(archive.read(name));print('Saved initial migration')
                     if name=='package-lock.json':pathlib.Path(name).write_bytes(archive.read(name));print('Saved cloud lockfile')
                     if name.endswith('.log'):print(name+'\n'+archive.read(name).decode('utf-8',errors='replace')[-10000:])
+                    if name in ('dashboard.png','content-studio.png'):
+                        target=pathlib.Path('docs/screenshots')/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(archive.read(name));print('Saved '+name)
     else:
         runs=get('/actions/runs?per_page=5')['workflow_runs']
         for run in runs: print(json.dumps({k:run[k] for k in ['id','status','conclusion','head_sha','html_url']},ensure_ascii=False))

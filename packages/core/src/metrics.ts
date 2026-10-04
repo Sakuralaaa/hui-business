@@ -39,6 +39,12 @@ export function sevenDayTrend(rows:BusinessRow[],cutoff:string,timezone:string){
     return {currency,timezone,first_period:{start:days[0],end_exclusive:days[7]},second_period:{start:days[7],end_exclusive:date},ready,missing_dates:missing,ambiguous_dates:ambiguous,first_sales:ready?first.toFixed(2):null,second_sales:ready?second.toFixed(2):null,growth:ready?ratio(second.minus(first),first):null};
   });
 }
+export function cohortMetrics(rows:BusinessRow[],links:Array<{fromId:string;toId:string}>,options:{cutoff:string;start?:string;end?:string;observationDays:number;coverage:'unknown'|'partial'|'complete'}){
+  const cutoff=Date.parse(options.cutoff);const cohort=rows.filter(r=>r.dataset==='inquiries'&&Date.parse(r.data.received_at)<=cutoff&&(!options.start||Date.parse(r.data.received_at)>=Date.parse(options.start))&&(!options.end||Date.parse(r.data.received_at)<Date.parse(options.end)));
+  const matured=cohort.filter(r=>cutoff-Date.parse(r.data.received_at)>=options.observationDays*86400000);const orders=new Map(rows.filter(r=>r.dataset==='orders'&&r.data.status!=='canceled'&&Date.parse(r.data.ordered_at)<=cutoff).map(r=>[r.id,r]));
+  const won=new Set(links.filter(l=>orders.has(l.toId)).map(l=>l.fromId));const wins=matured.filter(r=>won.has(r.id));
+  return {cohort_size:cohort.length,matured_inquiries:matured.length,still_observing:cohort.length-matured.length,confirmed_wins:wins.length,known_lost:matured.filter(r=>r.data.status==='lost').length,still_following:matured.filter(r=>!['won','lost'].includes(r.data.status)).length,observation_days:options.observationDays,coverage:options.coverage,conversion_rate:options.coverage==='complete'&&matured.length?new Decimal(wins.length).div(matured.length).toFixed(6):null,limitation:options.coverage==='complete'?'按用户已确认完整的关联及观察期计算':'关联覆盖未确认为完整，只展示显式关联的成交计数'};
+}
 export function quoteScenario(input:{quantity:string;unitCost:string;shipping:string;fees:string;targetMargin:string;exchangeRate:string}){
   const q=D(input.quantity),margin=D(input.targetMargin),fx=D(input.exchangeRate);
   if(q.lte(0)||margin.lt(0)||margin.gte(1)||fx.lte(0))throw Error('数量、汇率或毛利率无效');

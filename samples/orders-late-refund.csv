@@ -1,0 +1,2 @@
+﻿external_id,channel,ordered_at,currency,total,refund_total,cost_total,fee_total,status,source_updated_at
+000001,retail,2026-09-30T10:00:00+08:00,USD,120.00,20,55,5,completed,2026-10-04T10:00:00+08:00

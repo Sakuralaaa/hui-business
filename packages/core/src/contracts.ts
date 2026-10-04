@@ -29,7 +29,7 @@ export const mappingSchema=z.object({
   constants:z.record(z.string(),z.string()).default({}),excluded_rows:z.array(z.string()).max(limits.rows).default([])
 });
 export type Mapping=z.infer<typeof mappingSchema>;
-export const money=z.string().regex(/^-?\d{1,24}(\.\d{1,8})?$/,'金额或数量必须为十进制字符串');
+export const money=z.string().regex(/^\d{1,24}(\.\d{1,8})?$/,'金额或数量必须为非负十进制字符串');
 const id=z.string().min(1).max(180);
 const optionalMoney=money.optional();
 const base={external_id:id,source_updated_at:timestamp.optional()};
