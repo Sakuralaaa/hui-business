@@ -23,7 +23,7 @@ jobs:
       BOOTSTRAP_PASSWORD: ci-demo-password-only
       ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       COOKIE_SECURE: 'false'
-      PUBLIC_URL: http://localhost:3000
+      PUBLIC_URL: http://127.0.0.1:4173
       CI_DIAGNOSTICS: 'true'
       STORAGE_PATH: /tmp/workbench-objects
     steps:
@@ -42,13 +42,19 @@ jobs:
           DATABASE_URL=postgresql://workbench_app:app_ci_password@localhost:5432/workbench node apps/api/dist/main.js > /tmp/api.log 2>&1 &
           DATABASE_URL=postgresql://workbench_worker:worker_ci_password@localhost:5432/workbench node apps/api/dist/worker.js > /tmp/worker.log 2>&1 &
           python3 tests/integration.py
+      - name: Browser acceptance and screenshots
+        run: |
+          npx playwright install --with-deps chromium
+          npm exec -w @workbench/web -- vite preview --host 127.0.0.1 --port 4173 > /tmp/web.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4173 >/dev/null && break; sleep 1; done
+          npx playwright test
       - name: Save schema, lockfile and diagnostic logs
         if: always()
         run: |
           mkdir -p artifacts
           cp package-lock.json artifacts/ || true
           node node_modules/prisma/build/index.js migrate diff --from-empty --to-schema-datamodel apps/api/prisma/schema.prisma --script > artifacts/0001_initial.sql || true
-          cp /tmp/api.log /tmp/worker.log artifacts/ 2>/dev/null || true
+          cp /tmp/api.log /tmp/worker.log /tmp/web.log artifacts/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: validation-artifacts, path: artifacts/}

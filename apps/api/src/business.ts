@@ -9,7 +9,7 @@ import { fail } from './errors';
 const json=(v:any):Prisma.InputJsonValue=>JSON.parse(JSON.stringify(v));
 const financialFields=['cost','cost_total','fee_total','unitCost','margin'];
 export function presentRecord(ctx:Context,record:any){if(['owner','admin','finance'].includes(ctx.role))return record;const data={...record.data};for(const field of financialFields)delete data[field];return {...record,data};}
-export async function shopLock(tx:Tx,ctx:Context,shopId:string){await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.enterpriseId+':'+shopId},0))`;}
+export async function shopLock(tx:Tx,ctx:Context,shopId:string){await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.enterpriseId+':'+shopId},0))::text AS locked`;}
 @Injectable()
 export class Business {
   constructor(@Inject(Db) private db:Db){}

@@ -33,7 +33,7 @@ export class Models {
     if(user.length>100000)fail('MODEL_INPUT','模型输入超过首版限制');
     const estimatedInput=Math.ceil((system.length+user.length)/2)+200;
     const reservation=await this.db.tenant(ctx,async tx=>{
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.enterpriseId+':model-budget'},0))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.enterpriseId+':model-budget'},0))::text AS locked`;
       const c=await tx.modelConfig.findUnique({where:{enterpriseId:ctx.enterpriseId}});if(!c)return null;
       const month=new Date();month.setUTCDate(1);month.setUTCHours(0,0,0,0);
       const calls=await tx.modelCall.findMany({where:{enterpriseId:ctx.enterpriseId,createdAt:{gte:month}}});

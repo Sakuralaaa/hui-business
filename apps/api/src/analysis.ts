@@ -27,7 +27,7 @@ export class Analysis {
       const fingerprint=hash({rows:snapshotRows,role:ctx.role,userId:ctx.userId});
       const snapshot=await tx.datasetSnapshot.upsert({where:{enterpriseId_shopId_fingerprint:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint}},create:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint,records:json(snapshotRows)},update:{}});
       const enterprise=await tx.enterprise.findUnique({where:{id:ctx.enterpriseId}});
-      const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds,blockedDatasets:blocked,timezone:enterprise?.timezone??'Asia/Shanghai',sourceRules:rules};
+      const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds,blockedDatasets:blocked,timezone:enterprise?.timezone??'Asia/Shanghai',sourceRules:rules,allowedDatasets:allowed??null};
       const run=await tx.analysisRun.create({data:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,snapshotId:snapshot.id,createdBy:ctx.userId,kind:input.kind,parameters:json(params)}});await enqueue(tx,ctx,input.shopId,'analysis',{runId:run.id});await audit(tx,ctx,'analysis.create',run.id,{kind:input.kind,snapshotId:snapshot.id},input.shopId);return run;
     });
   }
@@ -36,7 +36,8 @@ export class Analysis {
     if(input.run.state==='completed')return;const rows=input.snapshot!.records as unknown as BusinessRow[];const p=input.run.parameters as any;
     await this.db.tenant(ctx,tx=>tx.analysisRun.update({where:{id:runId},data:{state:'running'}}));
     const blocked=new Set((p.blockedDatasets??[]).map((x:any)=>x.dataset));const usable=rows.filter(r=>!blocked.has(r.dataset));
-    const metrics={...calculateMetrics(usable,p.cutoff),data_gates:p.blockedDatasets??[],trend:sevenDayTrend(usable,p.cutoff,p.timezone??'Asia/Shanghai')};let insights:any={insights:[],actions:[],mode:'deterministic',limitations:['尚未调用模型；指标已经可以独立复算']};let model:string|undefined;
+    const rawMetrics=calculateMetrics(usable,p.cutoff);const currencies=rawMetrics.currencies.map(c=>({...c,...(blocked.has('orders')?{revenue:null,order_count:null,refunds:null,contribution_profit:null}:{}),...(blocked.has('expenses')?{contribution_profit:null,confirmed_overhead:null}:{}),...(blocked.has('payments')?{cash_in:null,cash_out:null}:{}),...(blocked.has('ads')?{ads:{spend:null,ctr:null,cpc:null,acos:null,roas:null,attribution_ready:false}}:{})}));
+    const metrics={...rawMetrics,currencies,data_gates:p.blockedDatasets??[],trend:sevenDayTrend(usable,p.cutoff,p.timezone??'Asia/Shanghai')};let insights:any={insights:[],actions:[],mode:'deterministic',limitations:['尚未调用模型；指标已经可以独立复算']};let model:string|undefined;
     try{
       if(p.useAi){
         const samples=[...rows.filter(r=>r.id===p.recordId),...rows.filter(r=>r.id!==p.recordId&&r.dataset!=='customers')].slice(0,30);
@@ -60,7 +61,7 @@ export class Analysis {
   }
   async get(ctx:Context,id:string){return this.db.tenant(ctx,async tx=>{
     const r=await tx.analysisRun.findFirst({where:{id,enterpriseId:ctx.enterpriseId,...shopWhere(ctx)}});if(!r)fail('RUN','报告不存在',404);if(r.kind==='business')finance(ctx);else if(r.createdBy!==ctx.userId&&!['owner','admin'].includes(ctx.role))fail('RUN_SCOPE','无权查看其他成员的草稿分析',403);
-    const snapshot=await tx.datasetSnapshot.findUnique({where:{id:r.snapshotId}});const current=await tx.businessRecord.findMany({where:{enterpriseId:ctx.enterpriseId,shopId:r.shopId},select:{id:true,version:true}});const versions=new Map(current.map(x=>[x.id,x.version]));
+    const params=r.parameters as any;const snapshot=await tx.datasetSnapshot.findUnique({where:{id:r.snapshotId}});const all=await tx.businessRecord.findMany({where:{enterpriseId:ctx.enterpriseId,shopId:r.shopId,...(params.allowedDatasets?{dataset:{in:params.allowedDatasets}}:{})},select:{id:true,version:true,dataset:true,sourcePlatform:true}});const current=all.filter(x=>!params.sourceRules?.[x.dataset]||x.sourcePlatform===params.sourceRules[x.dataset]);const versions=new Map(current.map(x=>[x.id,x.version]));
     const old=snapshot!.records as any[];return {...r,stale:old.some(x=>versions.get(x.id)!==x.version)||current.length!==old.length,evidence:old.map(x=>({id:x.id,version:x.version,dataset:x.dataset}))};
   });}
 }
