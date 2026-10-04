@@ -29,6 +29,7 @@ export class Analysis {
       const snapshot=await tx.datasetSnapshot.upsert({where:{enterpriseId_shopId_fingerprint:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint}},create:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,fingerprint,records:json(snapshotRows)},update:{}});
       const enterprise=await tx.enterprise.findUnique({where:{id:ctx.enterpriseId}});
       const params={...input,cutoff:input.cutoff??new Date().toISOString(),permissionRole:ctx.role,requestedShopIds:ctx.shopIds,blockedDatasets:blocked,timezone:enterprise?.timezone??'Asia/Shanghai',sourceRules:rules,allowedDatasets:allowed??null,confirmedLinks:links.map(l=>({id:l.id,fromId:l.fromId,toId:l.toId}))};
+      if(!input.useAi){const cached=await tx.analysisRun.findFirst({where:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,snapshotId:snapshot.id,createdBy:ctx.userId,kind:input.kind,state:'completed',parameters:{equals:json(params)}}});if(cached)return {...cached,cacheHit:true};}
       const run=await tx.analysisRun.create({data:{enterpriseId:ctx.enterpriseId,shopId:input.shopId,snapshotId:snapshot.id,createdBy:ctx.userId,kind:input.kind,parameters:json(params)}});await enqueue(tx,ctx,input.shopId,'analysis',{runId:run.id});await audit(tx,ctx,'analysis.create',run.id,{kind:input.kind,snapshotId:snapshot.id},input.shopId);return run;
     });
   }
