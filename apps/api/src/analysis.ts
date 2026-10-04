@@ -34,7 +34,7 @@ export class Analysis {
   }
   async execute(ctx:Context,runId:string){
     const input=await this.db.tenant(ctx,async tx=>{const run=await tx.analysisRun.findUnique({where:{id:runId}});if(!run)fail('RUN','任务不存在',404);const snapshot=await tx.datasetSnapshot.findUnique({where:{id:run.snapshotId}});return {run,snapshot};});
-    if(input.run.state==='completed')return;const rows=input.snapshot!.records as unknown as BusinessRow[];const p=input.run.parameters as any;
+    if(input.run.state==='completed')return;if(input.run.state==='failed')throw Error(input.run.error??'分析已失败；重新创建任务后再尝试');const rows=input.snapshot!.records as unknown as BusinessRow[];const p=input.run.parameters as any;
     await this.db.tenant(ctx,tx=>tx.analysisRun.update({where:{id:runId},data:{state:'running'}}));
     const blocked=new Set((p.blockedDatasets??[]).map((x:any)=>x.dataset));const usable=rows.filter(r=>!blocked.has(r.dataset));
     const rawMetrics=calculateMetrics(usable,p.cutoff);const currencies=rawMetrics.currencies.map(c=>({...c,...(blocked.has('orders')?{revenue:null,order_count:null,refunds:null,contribution_profit:null}:{}),...(blocked.has('expenses')?{contribution_profit:null,confirmed_overhead:null}:{}),...(blocked.has('payments')?{cash_in:null,cash_out:null}:{}),...(blocked.has('ads')?{ads:{spend:null,ctr:null,cpc:null,acos:null,roas:null,attribution_ready:false}}:{})}));
