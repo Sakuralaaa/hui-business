@@ -1,67 +1,50 @@
-# Zeabur 部署记录与操作说明
+# Zeabur 两个服务部署记录
 
-2026-10-05 已部署试用版：[打开工作台](https://hui-business-sakuralaaa.zeabur.app)。项目为 `hui-business`，运行在用户指定的唯一 ZeaburOS 托管服务器上。服务器实际架构为 ARM64。
+2026-10-05 已将工作台合并为主应用 + PostgreSQL：[打开工作台](https://hui-business-sakuralaaa.zeabur.app)。仍运行在原来的唯一 ARM64 托管服务器，公网域名、管理员账号、企业数据和模型加密密钥均沿用。
 
-管理员登录资料保存在本地 `data/zeabur-login.txt`，文件已忽略 Git 并限制为当前 Windows 用户访问。Zeabur 认证由 CLI 的用户配置管理，API Key 不进入代码、镜像、模板或本文档。
+管理员资料位于本机 data/zeabur-login.txt，已排除 Git 并限制文件访问。Zeabur API Key 和所有生成的密码不进入仓库。
 
-## 镜像与服务
+## 当前服务
 
-本次应用镜像标签固定为 `aeb1410141fbac2ec698bb86a4a74df85863bbdb`，包含分别通过启动验证的 AMD64、ARM64 镜像。构建与镜像验证在 [GitHub Actions](https://github.com/Sakuralaaa/hui-business/actions/runs/37220336428) 完成。本机没有构建或运行测试。
-
-| 服务 | 用途 | 持久保存 |
+| 服务 | ID | 职责及持久化 |
 |---|---|---|
-| `web-runtime` | 网页与 API 反向代理，唯一公网 HTTPS 入口 | 网页来自固定镜像 |
-| `api-runtime` | 登录、业务接口、上传与确认 | 数据库及私有 S3 |
-| `worker-runtime` | 解析、预览和经营分析 | PostgreSQL 持久任务 |
-| `postgresql` | 官方 PostgreSQL 18 模板 | 官方数据库卷 |
-| `rustfs` | RustFS 1.0.1，兼容 S3 的原件存储 | `/data` 卷 |
-| `database-backup` | 每次启动及每 24 小时生成数据库归档 | 独立 `/backups` 卷 |
-| `originals-backup` | 每次启动及每 24 小时复制新增原件 | 独立 `/backups` 卷 |
+| hui-business | 6ac28fa30bdfb9653793d1bb | 网页、API、Worker、每日备份；application 卷挂载 /data |
+| postgresql | 6ac28bf60bdfb9653793d03e | PostgreSQL 18；沿用原数据库卷，无公网 TCP 转发 |
 
-API、Worker、数据库、存储及备份服务没有绑定公网域名；数据库 TCP 转发已禁用。API 与 Worker 使用不同的数据库角色。
+主应用镜像固定为 ghcr.io/sakuralaaa/hui-business-api:49afcbc35a2062380dfbb4c22a098f02c3b211f4。[GitHub Actions 37262680392](https://github.com/Sakuralaaa/hui-business/actions/runs/37262680392) 已完成 AMD64 / ARM64 构建、启动、Worker 故障恢复、容器重启和备份恢复检查。本机未进行构建或测试。
 
-API 与 Worker 的 `/tmp/hui-objects` 是临时解析及下载目录，原件由 RustFS 保存。重启不会删除已封存的原件或已确认数据；中断中的文件需由上传程序重传，原件封存后可以重新下载解析。
+镜像沿用 API 包名，已包含网页。supervisord 管理内部独立进程，API、Worker、Nginx、备份以 node 用户运行。API 与 Worker 继续使用不同数据库角色；备份使用只读且可读取 RLS 数据的专用角色。主应用只对外提供 8080 HTTP，由 Zeabur 终止 HTTPS。
 
-Zeabur 官方 MinIO 模板在本次环境拉取镜像时返回 401，改用了 RustFS。首次模板对初始化卷的 `mountPath` 没有正确传递，API/Worker 的最终部署去除了这一挂载依赖。失败的旧 `minio`、`api`、`worker`、`web` 条目已暂停；它们不是当前运行入口。初始化 `bootstrap` 验收完成后暂停，保留供管理员审查迁移时使用。更新时使用上表服务及 `CLAUDE.md` 的既有 ID。
+/api/health 同时检查数据库和 Worker 调度心跳。每日备份状态单独保存在 /data/backups/status.json，不能仅凭服务 Running 判断备份成功。
 
-## 首次部署与升级
+## 已完成的迁移与验证
 
-`deploy/zeabur/` 提供存储、应用、备份模板，以及对应的初始化与验证脚本。它们适用于新的空项目；在已初始化项目反复部署模板可能创建重复服务。
+- 沿用现有数据库，迁移前基准为 3 个企业、129 条业务记录、2 份原件。
+- RustFS 的全部 2 个对象迁移至 /data/objects，逐个核对数据库记录中的 SHA-256；不存在来源缺失或目的文件冲突。
+- 云端实际验收新增 1 份模拟原件；目前 3 份原件全部通过重启后的哈希校验与备份校验。
+- HTTPS、登录、任务上传凭据、解析预览、幂等确认、原件下载、跨企业拒绝读取、后台分析和凭据撤销均通过。
+- 本次验收批次：a29555fd-ab99-42b6-8e0f-993daf05ffea；分析报告：8ca42ee0-0619-4b2f-9cb3-8bd8d9cb908e。
+- 旧数据库和原件备份已保存到 /data/backups/legacy/database-backup 与 /data/backups/legacy/originals-backup，并另存于本机受保护且不提交 Git 的 data/legacy-backups/。
+- 移除临时 S3 迁移凭据、停用旧文件存储及独立备份服务后，主应用重启成功；不依赖 RustFS。
+- 合并后的数据库归档恢复到隔离临时库，验证得到 3 个企业、129 条业务记录、3 条文件记录；临时恢复库已清理。
 
-1. 在目标服务器所属 region 创建项目，部署官方 PostgreSQL 模板 `B20CX0` 并禁用 TCP 转发。
-2. 部署 `storage.yaml`。该文件取自官方 RustFS 模板 `7FG0WI`，去掉公网域名并固定镜像版本。
-3. 部署 `application.yaml`，提供加密密钥、公开 origin、API/Worker 两个数据库密码及管理员账号。数据库密码采用 24 字节随机数的 48 位十六进制表示，加密密钥采用 32 字节随机数的 64 位十六进制表示。
-4. 检查 `bootstrap` 输出 `HUI_BOOTSTRAP_COMPLETE`。初始化脚本安装 schema 和企业策略、设置独立角色、创建演示企业与原件桶。API/Worker 最终模板不依赖 bootstrap 的持续运行。
-5. 将 HTTPS 域名绑定到 `web-runtime`；`PUBLIC_URL` 与实际 origin 一致，`COOKIE_SECURE=true`。
-6. 部署 `backups.yaml`，确认首次备份和恢复检查成功，然后暂停 `bootstrap`。
+此前的 10 个拆分服务已暂停，永久删除需完成最后确认；只有上述两个服务运行。具体清理状态及目标见 [旧服务清理记录](zeabur-cleanup.md)。
 
-已有服务升级使用 `npx zeabur@latest service update tag --id <既有服务ID> -t <通过 CI 的固定提交标签> -y -i=false`。API、Worker、Web 保持同一提交版本；先备份再升级。数据库 schema 改动必须提供经过审查的迁移，不能对真实数据库运行 `db push`。
+## 文件与备份
 
-## 本次线上验收
+- /data/objects：原件的正式存储，保留原相对路径。
+- /data/migration-originals.json：首次迁移清单。
+- /data/backups/hui-<UTC时间>.dump：数据库归档。
+- 同名 .originals.json：该次备份的原件清单。
+- /data/backups/originals：逐个核验 SHA-256 的原件副本。
+- /data/backups/legacy：从旧备份服务保留的历史文件。
 
-验证脚本 `verify.cjs` 在云端 bootstrap 容器执行，只写入演示企业，没有读取真实店铺，也没有调用付费模型。
+主应用启动时及每 24 小时生成备份，归档不自动删除。备份仍与主应用处于同机、同卷，不能抵御服务器或磁盘丢失；正式经营前应同步到独立位置，并另行保存 ENCRYPTION_KEY。备份失败会记录 COMPACT_BACKUP_FAILED 和状态文件，修复原因后重启主服务可以重试。
 
-- HTTPS、浏览器管理员登录及三个企业可用。
-- 任务专用凭据上传模拟 CSV，S3 封存、Worker 解析与预览正常。
-- 确认入库与重复确认的幂等行为正常。
-- 下载原件的 SHA-256 与上传文件一致。
-- 切换另一个演示企业读取批次返回 404。
-- 后台确定性经营分析完成，上传凭据撤销成功。
-- 数据库归档恢复到隔离的临时数据库，企业数量为 3；验证后移除临时恢复库，业务库保持运行。
-- 两份验收原件已复制到独立备份卷。
+## 更新方式
 
-最近验收批次为 `89570d8b-497e-49ca-88f2-9b687ddd0bff`，分析报告为 `c78d614b-5d05-48aa-ae51-ba3205eae67b`。
+保留本文件中的服务 ID、现有数据库卷及 application 卷。通过 CI 后使用 npx zeabur@latest service update tag --id 6ac28fa30bdfb9653793d1bb -t <已验证提交> -y -i=false 更新主应用，不要向本项目再次部署模板。
 
-![线上演示企业](screenshots/zeabur-live.png)
+新建空项目时先部署官方 PostgreSQL 模板 B20CX0 并关闭 TCP 转发，然后参考 deploy/zeabur/application.yaml 部署一个主应用。初始化后关闭 BOOTSTRAP_ON_START；schema 改动需要单独审查迁移，不能对现有业务数据库运行 db push。
 
-## 备份与恢复
-
-当前 Zeabur 套餐的内置备份接口返回 `REQUIRE_PAID_PLAN`，因此使用独立备份服务，未开通付费升级。备份属于同一服务器上的独立卷，可以应对数据库或对象的误改，不能抵御整台服务器及磁盘丢失。正式经营前还需把数据库归档、原件和加密密钥复制到独立位置，并做完整恢复演练。
-
-数据库归档路径为 `database-backup:/backups/hui-<UTC时间>.dump`，第一次恢复检查结果位于 `/backups/restore-verified.txt`。原件副本在 `originals-backup:/backups/objects/`，最近成功时间与数量在 `/backups/objects-status.json`。两类备份目前保留已有文件，不自动删除；关注服务器磁盘占用。
-
-每个备份服务从启动完成后按 24 小时间隔运行，重启会触发额外一次备份。通过各服务日志查看 `DATABASE_BACKUP_SAVED`、`DATABASE_RESTORE_VERIFIED` 和 `ORIGINALS_BACKUP_SAVED`。失败须查看日志并恢复任务，不能把服务 Running 等同于备份成功。
-
-恢复时先暂停业务写入，再在隔离数据库用 `pg_restore` 验证归档。原件副本按原对象 key 上传回私有桶，恢复相同的 `ENCRYPTION_KEY`，核对原件哈希、业务版本、快照和模型配置后切换应用。不要在运行中的真实数据库直接覆盖恢复。
-
-模型接口仍需用户配置；Accio 真正导出店铺原始数据和官方平台 API 权限仍待朋友环境验证。本次交付适合模拟演示和小规模试用。
+模型接口仍需企业自行配置，真实店铺/Accio 导出权限仍未验证。本次合并不改变经营功能、企业隔离和人工确认流程。
