@@ -122,7 +122,10 @@ jobs:
           docker compose exec -T db psql -U workbench_admin -d restore_check -t -c 'SELECT count(*) FROM "Enterprise"' | tr -d ' ' | grep '^3$'
       - name: Container diagnostic logs
         if: failure()
-        run: docker compose logs --no-color || true
+        run: |
+          docker ps -a
+          docker logs hui-business-app-1 || true
+          docker logs hui-business-db-1 || true
   publish-manifests:
     if: github.event_name != 'pull_request'
     needs: images
