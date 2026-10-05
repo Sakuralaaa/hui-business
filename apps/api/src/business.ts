@@ -39,11 +39,23 @@ export class Business {
   async history(ctx:Context,id:string){return this.db.tenant(ctx,async tx=>{const record=await tx.businessRecord.findFirst({where:{id,enterpriseId:ctx.enterpriseId,...shopWhere(ctx)}});if(!record)fail('RECORD','记录不存在',404);permission(ctx,record.dataset);const versions=await tx.recordVersion.findMany({where:{recordId:id},orderBy:{version:'desc'}});return versions.map(v=>presentRecord(ctx,v));});}
   async link(ctx:Context,body:any){
     if(ctx.role==='viewer')fail('FORBIDDEN','需要编辑权限',403);
-    const p=z.object({shopId:z.string().uuid(),fromId:z.string().uuid(),toId:z.string().uuid(),kind:z.enum(['inquiry_order','product_sku','same_entity'])}).parse(body);assertShop(ctx,p.shopId);
+    const p=z.object({shopId:z.string().uuid(),fromId:z.string().uuid(),toId:z.string().uuid(),kind:z.enum(['inquiry_order','inquiry_quote','inquiry_sample','inquiry_task','product_sku','same_entity'])}).parse(body);assertShop(ctx,p.shopId);
     return this.db.tenant(ctx,async tx=>{
       const records=await tx.businessRecord.findMany({where:{id:{in:[p.fromId,p.toId]},enterpriseId:ctx.enterpriseId,shopId:p.shopId}});if(records.length!==2)fail('LINK','关联记录必须存在于同一企业店铺');for(const r of records)permission(ctx,r.dataset);
-      if(p.kind==='inquiry_order'&&!(records.find(r=>r.id===p.fromId)?.dataset==='inquiries'&&records.find(r=>r.id===p.toId)?.dataset==='orders'))fail('LINK','询盘与订单关联方向错误');
+      const from=records.find(r=>r.id===p.fromId)?.dataset,to=records.find(r=>r.id===p.toId)?.dataset;
+      const expected:Record<string,[string,string]>={inquiry_order:['inquiries','orders'],inquiry_quote:['inquiries','quotes'],inquiry_sample:['inquiries','samples'],inquiry_task:['inquiries','tasks'],product_sku:['products','order_lines']};
+      if(expected[p.kind]&&(from!==expected[p.kind][0]||to!==expected[p.kind][1]))fail('LINK','关联记录类型或方向不正确');
       const result=await tx.entityLink.upsert({where:{enterpriseId_shopId_fromId_toId_kind:{enterpriseId:ctx.enterpriseId,...p}},create:{enterpriseId:ctx.enterpriseId,...p,confirmedBy:ctx.userId},update:{}});await audit(tx,ctx,'entity.link',result.id,{kind:p.kind},p.shopId);return result;
+    });
+  }
+  async links(ctx:Context,shopId:string,kind:string){
+    const parsed=z.enum(['inquiry_order','inquiry_quote','inquiry_sample','inquiry_task','product_sku','same_entity']).parse(kind);const scope=z.string().uuid().parse(shopId);assertShop(ctx,scope);
+    return this.db.tenant(ctx,async tx=>{
+      const links=await tx.entityLink.findMany({where:{enterpriseId:ctx.enterpriseId,shopId:scope,kind:parsed},orderBy:{createdAt:'desc'},take:500});
+      if(!links.length)return [];
+      const records=await tx.businessRecord.findMany({where:{enterpriseId:ctx.enterpriseId,shopId:scope,id:{in:[...new Set(links.flatMap(link=>[link.fromId,link.toId]))]}}});
+      const byId=new Map(records.map(record=>[record.id,record]));
+      return links.flatMap(link=>{const from=byId.get(link.fromId),to=byId.get(link.toId);if(!from||!to)return [];permission(ctx,from.dataset);permission(ctx,to.dataset);return [{id:link.id,kind:link.kind,createdAt:link.createdAt,from:{id:from.id,dataset:from.dataset,externalId:from.externalId,data:presentRecord(ctx,from).data},to:{id:to.id,dataset:to.dataset,externalId:to.externalId,data:presentRecord(ctx,to).data}}];});
     });
   }
   async movement(ctx:Context,id:string,body:any){
