@@ -14,7 +14,7 @@ test('login, choose demo, simplified navigation and creation center',async({page
  }
  await page.getByRole('tab',{name:'商品文案',exact:true}).click();await page.getByLabel('标题',{exact:true}).first().fill('Travel bottle');await page.getByLabel('描述',{exact:true}).first().fill('Confirmed product description');await page.getByRole('button',{name:/检查文案/}).click();await expect(page.getByText('文本检查分',{exact:true})).toBeVisible();await page.screenshot({path:'artifacts/content-studio.png',fullPage:true});
  await page.getByRole('button',{name:'更多',exact:true}).click();await page.getByText('经营分析',{exact:true}).click();await expect(page.getByRole('heading',{name:'经营分析',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'导入资料',exact:true}).click();await expect(page.getByRole('heading',{name:'导入资料',exact:true})).toBeVisible();
+ await page.locator('.sidebar').getByRole('button',{name:'首页',exact:true}).click();await expect(page.getByRole('heading',{name:'首页',exact:true})).toBeVisible();await page.getByRole('button',{name:'导入资料',exact:true}).click();await expect(page.getByRole('heading',{name:'导入资料',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'创作中心',exact:true}).click();await expect(page.locator('body')).not.toHaveCSS('overflow-x','visible');
  expect(errors).toEqual([]);
 });
