@@ -4,7 +4,7 @@
 
 ## 使用
 
-按照 [部署说明](docs/deployment.md) 配置服务器的 `.env`，拉取 GitHub Actions 生成的 API / Web 镜像，运行 Docker Compose；初始化管理员后登录。切换到两个演示企业查看模拟数据，真实企业从创建店铺开始。
+按照 [部署说明](docs/deployment.md) 配置服务器的 `.env`，拉取 GitHub Actions 生成的统一应用镜像，运行 Docker Compose。部署只包含主应用与 PostgreSQL 两个服务；网页、API、Worker 和每日备份在主应用内运行。切换到两个演示企业查看模拟数据，真实企业从创建店铺开始。
 
 Zeabur 试用环境已上线：[打开工作台](https://hui-business-sakuralaaa.zeabur.app)。镜像支持 AMD64 / ARM64，[Zeabur 部署记录](docs/zeabur-deployment.md) 说明实际配置、验收与备份范围。
 

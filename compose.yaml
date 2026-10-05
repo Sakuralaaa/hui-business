@@ -1,15 +1,15 @@
 name: hui-business
 services:
   db:
-    image: postgres:17.4-alpine
+    image: postgres:18-bookworm
     environment:
       POSTGRES_USER: workbench_admin
       POSTGRES_DB: workbench
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set database admin password}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set app password}
-      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?set worker password}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set 48 hex app password}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?set 48 hex worker password}
     volumes:
-      - database:/var/lib/postgresql/data
+      - database:/var/lib/postgresql
       - ./deploy/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
       test: [CMD-SHELL, pg_isready -U workbench_admin -d workbench]
@@ -17,60 +17,31 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
-  migrate:
-    image: ${API_IMAGE:-ghcr.io/sakuralaaa/hui-business-api:latest}
-    command: [npm, run, db:deploy]
+  app:
+    image: ${APP_IMAGE:-ghcr.io/sakuralaaa/hui-business-api:latest}
+    ports: ['${WEB_BIND:-127.0.0.1}:8080:8080']
     environment:
-      DATABASE_URL_ADMIN: postgresql://workbench_admin:${POSTGRES_PASSWORD}@db:5432/workbench
-      DATABASE_URL: postgresql://workbench_admin:${POSTGRES_PASSWORD}@db:5432/workbench
-    depends_on:
-      db: {condition: service_healthy}
-  seed:
-    image: ${API_IMAGE:-ghcr.io/sakuralaaa/hui-business-api:latest}
-    command: [npm, run, seed]
-    profiles: [bootstrap]
-    environment:
-      DATABASE_URL_ADMIN: postgresql://workbench_admin:${POSTGRES_PASSWORD}@db:5432/workbench
-      DATABASE_URL: postgresql://workbench_admin:${POSTGRES_PASSWORD}@db:5432/workbench
-      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL}
-      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD}
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-  api:
-    image: ${API_IMAGE:-ghcr.io/sakuralaaa/hui-business-api:latest}
-    environment: &application
       DATABASE_URL: postgresql://workbench_app:${APP_DB_PASSWORD}@db:5432/workbench
+      DATABASE_URL_WORKER: postgresql://workbench_worker:${WORKER_DB_PASSWORD}@db:5432/workbench
+      DATABASE_URL_ADMIN: postgresql://workbench_admin:${POSTGRES_PASSWORD}@db:5432/workbench
+      BACKUP_DATABASE_URL: postgresql://workbench_backup:${BACKUP_DB_PASSWORD:?set 48 hex backup password}@db:5432/workbench
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD}
+      BOOTSTRAP_ON_START: ${BOOTSTRAP_ON_START:-false}
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set 64 hex encryption key}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       STORAGE_PATH: /data/objects
-      MODEL_HOST_ALLOWLIST: ${MODEL_HOST_ALLOWLIST:-api.openai.com,api.deepseek.com,dashscope.aliyuncs.com}
+      BACKUP_PATH: /data/backups
       CATALOG_PATH: /app/catalog
-    volumes: [objects:/data/objects]
+      MODEL_HOST_ALLOWLIST: ${MODEL_HOST_ALLOWLIST:-api.openai.com,api.deepseek.com,dashscope.aliyuncs.com}
+    volumes: [application:/data]
     depends_on:
-      migrate: {condition: service_completed_successfully}
-    healthcheck:
-      test: [CMD, node, -e, "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-  worker:
-    image: ${API_IMAGE:-ghcr.io/sakuralaaa/hui-business-api:latest}
-    command: [node, apps/api/dist/worker.js]
-    environment:
-      <<: *application
-      DATABASE_URL_WORKER: postgresql://workbench_worker:${WORKER_DB_PASSWORD}@db:5432/workbench
-    volumes: [objects:/data/objects]
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-    restart: unless-stopped
-  web:
-    image: ${WEB_IMAGE:-ghcr.io/sakuralaaa/hui-business-web:latest}
-    ports: ['${WEB_BIND:-127.0.0.1}:8080:8080']
-    depends_on:
-      api: {condition: service_healthy}
+      db: {condition: service_healthy}
     restart: unless-stopped
 volumes:
   database:
-  objects:
+  application:

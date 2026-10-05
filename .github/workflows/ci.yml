@@ -83,43 +83,40 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          target: runtime
+          target: app
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
             ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}-${{ matrix.arch }}
-          cache-from: type=gha,scope=api-${{ matrix.arch }}
-          cache-to: type=gha,scope=api-${{ matrix.arch }},mode=max
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: web
-          platforms: ${{ matrix.platform }}
-          push: true
-          tags: |
-            ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}-${{ matrix.arch }}
-          cache-from: type=gha,scope=web-${{ matrix.arch }}
-          cache-to: type=gha,scope=web-${{ matrix.arch }},mode=max
-      - name: Run built images and restore a database backup
+          cache-from: type=gha,scope=compact-${{ matrix.arch }}
+          cache-to: type=gha,scope=compact-${{ matrix.arch }},mode=max
+      - name: Verify the two-service deployment, restart persistence and backups
         env:
           POSTGRES_PASSWORD: cloud_container_admin_password
-          APP_DB_PASSWORD: cloud_container_app_password
-          WORKER_DB_PASSWORD: cloud_container_worker_password
+          APP_DB_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          WORKER_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          BACKUP_DB_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccc
           ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           BOOTSTRAP_EMAIL: image-check@example.invalid
           BOOTSTRAP_PASSWORD: image-cloud-password-only
           PUBLIC_URL: http://localhost:8080
           COOKIE_SECURE: 'false'
-          API_IMAGE: ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}-${{ matrix.arch }}
-          WEB_IMAGE: ghcr.io/sakuralaaa/hui-business-web:${{ github.sha }}-${{ matrix.arch }}
+          APP_IMAGE: ghcr.io/sakuralaaa/hui-business-api:${{ github.sha }}-${{ matrix.arch }}
+          BOOTSTRAP_ON_START: 'true'
         run: |
-          docker compose up -d db migrate api worker web
-          docker compose run --rm seed
-          for i in $(seq 1 45); do curl -sf http://localhost:8080/api/health && break; sleep 2; done
+          docker compose up -d db app
+          for i in $(seq 1 60); do curl -sf http://localhost:8080/api/health && break; sleep 2; done
+          curl -sf http://localhost:8080/api/health
           curl -sf http://localhost:8080/ > /tmp/index.html
           curl -sf -X POST -H 'Content-Type: application/json' --data '{"email":"image-check@example.invalid","password":"image-cloud-password-only"}' http://localhost:8080/api/v1/auth/login > /tmp/login.json
           python3 -c "import json; assert len(json.load(open('/tmp/login.json'))['memberships']) == 3"
-          docker compose exec -T db pg_dump -U workbench_admin -d workbench -Fc > /tmp/backup.dump
+          docker compose exec -T app node deploy/zeabur/verify.cjs
+          docker compose exec -T app node deploy/compact/verify-processes.cjs
+          docker compose restart app
+          for i in $(seq 1 45); do curl -sf http://localhost:8080/api/health && break; sleep 2; done
+          curl -sf http://localhost:8080/api/health
+          docker compose exec -T app node deploy/compact/verify-persistence.cjs
+          docker compose exec -T app node -e 'const fs=require("fs");process.stdout.write(fs.readFileSync(JSON.parse(fs.readFileSync("/data/backups/status.json")).archive))' > /tmp/backup.dump
           docker compose exec -T db createdb -U workbench_admin restore_check
           docker compose exec -T db pg_restore -U workbench_admin -d restore_check < /tmp/backup.dump
           docker compose exec -T db psql -U workbench_admin -d restore_check -t -c 'SELECT count(*) FROM "Enterprise"' | tr -d ' ' | grep '^3$'
@@ -136,7 +133,7 @@ jobs:
         with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
       - name: Publish tested AMD64 and ARM64 image indexes
         run: |
-          for component in api web; do
+          for component in api; do
             image="ghcr.io/sakuralaaa/hui-business-${component}"
             docker buildx imagetools create -t "${image}:${GITHUB_SHA}" -t "${image}:latest" "${image}:${GITHUB_SHA}-amd64" "${image}:${GITHUB_SHA}-arm64"
             docker buildx imagetools inspect "${image}:${GITHUB_SHA}"
