@@ -44,7 +44,8 @@ export class Business {
       const records=await tx.businessRecord.findMany({where:{id:{in:[p.fromId,p.toId]},enterpriseId:ctx.enterpriseId,shopId:p.shopId}});if(records.length!==2)fail('LINK','关联记录必须存在于同一企业店铺');for(const r of records)permission(ctx,r.dataset);
       const from=records.find(r=>r.id===p.fromId)?.dataset,to=records.find(r=>r.id===p.toId)?.dataset;
       const expected:Record<string,[string,string]>={inquiry_order:['inquiries','orders'],inquiry_quote:['inquiries','quotes'],inquiry_sample:['inquiries','samples'],inquiry_task:['inquiries','tasks'],product_sku:['products','order_lines']};
-      if(expected[p.kind]&&(from!==expected[p.kind][0]||to!==expected[p.kind][1]))fail('LINK','关联记录类型或方向不正确');
+      const pair=expected[p.kind];
+      if(pair&&(from!==pair[0]||to!==pair[1]))fail('LINK','关联记录类型或方向不正确');
       const result=await tx.entityLink.upsert({where:{enterpriseId_shopId_fromId_toId_kind:{enterpriseId:ctx.enterpriseId,...p}},create:{enterpriseId:ctx.enterpriseId,...p,confirmedBy:ctx.userId},update:{}});await audit(tx,ctx,'entity.link',result.id,{kind:p.kind},p.shopId);return result;
     });
   }

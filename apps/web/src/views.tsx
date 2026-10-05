@@ -117,7 +117,7 @@ export function IntakePage(props:ShellProps&{onNavigate?:(page:string)=>void}){
    <div className="import-files">{preview.files.map((file:any)=><Card key={file.id} size="small" title={`${file.filename} · ${LABELS[file.dataset]??'经营资料'}`} extra={<Space><Button size="small" onClick={()=>openMapping(file)}>核对字段</Button><Button size="small" onClick={()=>downloadFile(`/imports/${preview.id}/files/${file.id}`,file.filename).catch((error:any)=>message.error(error.message))}>下载原文件</Button></Space>}><span className="muted">{file.rows??preview.summary?.files?.find((item:any)=>item.fileId===file.id)?.rows??'—'} 行；范围与完整性按原始文件记录</span></Card>)}</div>
    <div className="table-scroll"><Table style={{marginTop:18}} rowKey="id" dataSource={preview.rows} scroll={{x:700}} columns={[{title:'文件行',dataIndex:'rowNumber',width:80},{title:'检查结果',render:(_:any,row:any)=><Status value={row.decision}/>},{title:'识别到的资料',render:(_:any,row:any)=><div className="table-detail">{mappedValues(row)}</div>},{title:'需要处理的问题',render:(_:any,row:any)=>row.errors.length?row.errors.join('；'):'—'}]} pagination={{current:preview.page,total:preview.total,pageSize:50,showSizeChanger:false,onChange:page=>api(`/imports/${preview.id}/preview?page=${page}`).then(setPreview)}}/></div>
    {preview.rows?.some((row:any)=>row.errors?.length||['conflict','batch_conflict'].includes(row.decision))&&<Checkbox style={{marginTop:16}} checked={exclude} onChange={event=>setExclude(event.target.checked)}>我确认排除上面标记的问题记录，仅导入可用部分</Checkbox>}
-    {preview.state==='completed'?<div className="import-complete"><Alert type="success" showIcon message="这批资料已进入经营工作台" description="可以直接前往相关业务页面查看已导入的记录。"/><Space wrap style={{marginTop:14}}><Button type="primary" onClick={()=>{const key=preview.files?.[0]?.dataset;setPreview(null);props.onNavigate?.(['inquiries','customers','quotes','samples'].includes(key)?'b2b':['products','suppliers'].includes(key)?'products':'orders');}}>查看导入资料</Button><Button onClick={()=>setPreview(null)}>完成</Button></Space></div>:<Button style={{marginTop:18}} block type="primary" disabled={!preview.previewHash||['validating','uploaded','uploading','created','committing','rejected','failed'].includes(preview.state)} onClick={async()=>{try{const result=await api('/imports/'+preview.id+'/confirm',{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({previewVersion:preview.previewVersion,previewHash:preview.previewHash,excludeInvalid:exclude})});setStep(2);message.success(`已导入 ${result.committed} 条资料`);await show(preview.id);load();}catch(e:any){message.error(e.message);}}}>确认并导入可用资料</Button>}
+    {preview.state==='completed'?<div className="import-complete"><Alert type="success" showIcon message="这批资料已进入经营工作台" description="可以直接前往相关业务页面查看已导入的记录。"/><Space wrap style={{marginTop:14}}><Button type="primary" onClick={()=>{const key=preview.files?.[0]?.dataset??'';setPreview(null);props.onNavigate?.(['inquiries','customers','quotes','samples'].includes(key)?'b2b':['products','suppliers'].includes(key)?'products':'orders');}}>查看导入资料</Button><Button onClick={()=>setPreview(null)}>完成</Button></Space></div>:<Button style={{marginTop:18}} block type="primary" disabled={!preview.previewHash||['validating','uploaded','uploading','created','committing','rejected','failed'].includes(preview.state)} onClick={async()=>{try{const result=await api('/imports/'+preview.id+'/confirm',{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({previewVersion:preview.previewVersion,previewHash:preview.previewHash,excludeInvalid:exclude})});setStep(2);message.success(`已导入 ${result.committed} 条资料`);await show(preview.id);load();}catch(e:any){message.error(e.message);}}}>确认并导入可用资料</Button>}
    <JsonView value={preview.summary} show={showRaw}/>
   </>}</Drawer>
   <Modal title="核对字段对应关系" open={!!mapping} onCancel={()=>setMapping(null)} onOk={saveMapping} width={680} okText="保存并重新检查"><p className="section-note">请把文件中的列名对应到工作台字段。没用到的列可以留空。日期没有时区时，系统按下面选择的来源时区处理。</p>{mapping&&<><div className="mapping-list">{Object.keys(mapping.raw).map(column=><div className="mapping-row" key={column}><Typography.Text ellipsis={{tooltip:column}}>{column}</Typography.Text><Select allowClear placeholder="不导入此列" value={mapping.value.columns[column]} options={datasetFields.map((field:any)=>({value:field.name,label:FIELD_LABELS[field.name]??field.name}))} onChange={value=>{const columns={...mapping.value.columns};if(value)columns[column]=value;else delete columns[column];setMapping({...mapping,value:{...mapping.value,columns}});}}/></div>)}</div><Form.Item label="文件中的日期时区" style={{marginTop:18}}><Select value={mapping.value.timezone??undefined} allowClear placeholder="日期已包含时区，或暂不指定" options={[{value:'Asia/Shanghai',label:'中国标准时间'},{value:'UTC',label:'协调世界时'}]} onChange={timezone=>setMapping({...mapping,value:{...mapping.value,timezone:timezone??null}})}/></Form.Item><JsonView value={{fields:mapping.value.columns}} show={showRaw}/></>}</Modal>
@@ -153,8 +153,123 @@ export function Templates(props:ShellProps){
  return <><Card title="企业知识检索"><Space.Compact style={{width:'100%'}}><Input value={q} onChange={e=>setQ(e.target.value)} placeholder="输入资料中的关键词（中文建议使用完整词句）"/><Button type="primary" onClick={()=>api('/knowledge/search?shopId='+props.shop.id+'&q='+encodeURIComponent(q)).then(setFound).catch(e=>message.error(e.message))}>检索</Button></Space.Compact>{found.map((f:any)=><div key={f.id}><h3>{f.title}</h3><p className="template-body">{f.body}</p></div>)}</Card><div style={{marginTop:22}}><Records {...props} datasets={['knowledge','reviews']}/></div><h2>来源明确的运营模板</h2><div className="grid-two">{templates.map((t:any)=><Card key={t.id} title={t.title} extra={<Button size="small" onClick={()=>download(t.id+'.txt',t.body)}>导出</Button>}><p className="template-body">{t.body}</p><Tag>{t.license}</Tag><span className="muted">{t.source} · {t.version}</span><p className="section-note">{t.limitations.join('；')}</p></Card>)}</div></>;
 }
 export function Settings(props:ShellProps){
- const {message}=App.useApp();const isAdmin=['owner','admin'].includes(props.role);const {data:shops}=useLoad('/shops');const [config,setConfig]=useState<any>(null),[calls,setCalls]=useState<any[]>([]),[members,setMembers]=useState<any[]>([]),[audit,setAudit]=useState<any[]>([]),[invite,setInvite]=useState<any>(null);const [form]=Form.useForm();
- useEffect(()=>{if(!isAdmin)return;api('/model-config').then(c=>{setConfig(c);if(c)form.setFieldsValue(c);}).catch(e=>message.error(e.message));api('/model-calls').then(setCalls).catch(e=>message.error(e.message));api('/members').then(setMembers).catch(e=>message.error(e.message));api('/audits').then(setAudit).catch(e=>message.error(e.message));},[isAdmin]);
+ const {message}=App.useApp();
+ const isAdmin=['owner','admin'].includes(props.role);
+ const {data:shops}=useLoad('/shops');
+ const [config,setConfig]=useState<any>(null);
+ const [calls,setCalls]=useState<any[]>([]);
+ const [members,setMembers]=useState<any[]>([]);
+ const [audit,setAudit]=useState<any[]>([]);
+ const [invite,setInvite]=useState<any>(null);
+ const [form]=Form.useForm();
+ useEffect(()=>{
+  if(!isAdmin)return;
+  api('/model-config').then(value=>{setConfig(value);if(value)form.setFieldsValue(value);}).catch(e=>message.error(e.message));
+  api('/model-calls').then(setCalls).catch(e=>message.error(e.message));
+  api('/members').then(setMembers).catch(e=>message.error(e.message));
+  api('/audits').then(setAudit).catch(e=>message.error(e.message));
+ },[isAdmin,form,message]);
  if(!isAdmin)return <Alert message="企业与模型设置需要管理员权限"/>;
- return <Tabs items={[{key:'shops',label:'店铺与成员',children:<>{props.shop&&<SourceRules shop={props.shop}/>}<div className="grid-two"><Card title="新增店铺"><Form layout="vertical" onFinish={async v=>{try{await post('/shops',v);message.success('店铺已创建');props.refresh();}catch(e:any){message.error(e.message);}}}><Form.Item name="name" label="店铺名称" rules={[{required:true}]}><Input placeholder="例如：阿里国际站主店"/></Form.Item><Form.Item name="platform" label="平台" rules={[{required:true}]}><Select options={['alibaba_com','amazon','shopify','other'].map(v=>({value:v,label:enumLabel(v)}))}/></Form.Item><Button type="primary" htmlType="submit">创建店铺</Button></Form></Card><Card title="邀请成员"><Form layout="vertical" initialValues={{role:'operations',shopIds:props.shop?[props.shop.id]:[]}} onFinish={async v=>{try{const r=await post('/invites',v);setInvite(r);message.success(r.added?'已添加已有用户':'邀请已创建，请将凭据交给成员');api('/members').then(setMembers);}catch(e:any){message.error(e.message);}}}><Form.Item name="email" label="成员邮箱" rules={[{required:true,type:'email'}]}><Input/></Form.Item><Form.Item name="role" label="角色"><Select options={['admin','sales','operations','finance','viewer'].map(v=>({value:v,label:roleLabel(v)}))}/></Form.Item><Form.Item name="shopIds" label="可访问店铺"><Select mode="multiple" options={shops.map((s:any)=>({value:s.id,label:s.name}))}/></Form.Item><Button type="primary" htmlType="submit">创建邀请</Button></Form>{invite?.token&&<Input.Password style={{marginTop:16}} value={invite.token} readOnly/></Card></div><Card title="企业成员"><Table rowKey="id" dataSource={members} columns={[{title:'姓名',render:(_,r:any)=>r.user.name},{title:'邮箱',render:(_,r:any)=>r.user.email},{title:'角色',render:(_,r:any)=>roleLabel(r.role)},{title:'店铺范围',render:(_,r:any)=>r.shopIds.length+' 个'}]}/></Card></>},{key:'models',label:'模型与费用',children:<><div className="grid-two"><Card title="企业模型接口"><Form form={form} layout="vertical" initialValues={{provider:'openai-compatible',baseUrl:'https://api.openai.com/v1',monthlyBudget:'20',inputPrice:'0',outputPrice:'0',maxTokens:1800,concurrency:2}} onFinish={async v=>{try{await api('/model-config',{method:'PUT',body:JSON.stringify({...v,apiKey:v.apiKey||undefined})});message.success('模型配置已加密保存');}catch(e:any){message.error(e.message);}}}><Form.Item name="provider" label="接口类型"><Select options={['openai-compatible','ollama-compatible'].map(v=>({value:v,label:enumLabel(v)}))}/></Form.Item><Form.Item name="baseUrl" label="接口地址" rules={[{required:true}]}><Input/></Form.Item><Form.Item name="model" label="模型名称" rules={[{required:true}]}><Input placeholder="例如：deepseek-chat"/></Form.Item><Form.Item name="apiKey" label={config?.hasKey?'密钥（留空保留原密钥）':'密钥'}><Input.Password autoComplete="new-password"/></Form.Item><Form.Item name="monthlyBudget" label="月预算 USD"><Input/></Form.Item><Form.Item name="inputPrice" label="每百万输入 token 估算单价 USD"><Input/></Form.Item><Form.Item name="outputPrice" label="每百万输出 token 估算单价 USD"><Input/></Form.Item><Form.Item name="maxTokens" label="最大输出长度"><InputNumber min={256} max={8000}/></Form.Item><Form.Item name="concurrency" label="同时处理上限"><InputNumber min={1} max={8}/></Form.Item><Button type="primary" htmlType="submit">保存模型配置</Button></Form></Card><Card title="费用口径"><p>每次调用先预留预算，返回用量后按企业填写的单价估算费用。失败且费用未知时会保留预留额度，避免漏计。</p><p className="section-note">模型供应商失败不会静默切换。自定义模型地址需要部署管理员加入允许列表。</p><Statistic title="已记录调用次数" value={calls.length}/></Card></div><Card title="调用记录"><Table rowKey="id" dataSource={calls} columns={[{title:'模型',dataIndex:'model'},{title:'状态',render:(_,r:any)=><Status value={r.state}/>},{title:'输入量',dataIndex:'inputTokens'},{title:'输出量',dataIndex:'outputTokens'},{title:'估算成本 USD',render:(_,r:any)=>r.cost??r.reservedCost},{title:'时间',dataIndex:'createdAt'}]}/></Card></>},{key:'audit',label:'审计记录',children:<Card><Table rowKey="id" dataSource={audit} columns={[{title:'动作',dataIndex:'action'},{title:'目标',dataIndex:'targetId'},{title:'执行人',dataIndex:'actorId'},{title:'时间',dataIndex:'createdAt'}]} pagination={{pageSize:20}}/></Card>}]} />;
+ const shopOptions=shops.map((shop:any)=>({value:shop.id,label:shop.name}));
+ return <Tabs items={[
+  {
+   key:'shops',
+   label:'店铺与成员',
+   children:<>
+    {props.shop&&<SourceRules shop={props.shop}/>}
+    <div className="grid-two">
+     <Card title="新增店铺">
+      <Form layout="vertical" onFinish={async values=>{
+       try{await post('/shops',values);message.success('店铺已创建');props.refresh();}
+       catch(e:any){message.error(e.message);}
+      }}>
+       <Form.Item name="name" label="店铺名称" rules={[{required:true,message:'请填写店铺名称'}]}>
+        <Input placeholder="例如：阿里国际站主店"/>
+       </Form.Item>
+       <Form.Item name="platform" label="平台" rules={[{required:true,message:'请选择平台'}]}>
+        <Select options={['alibaba_com','amazon','shopify','other'].map(value=>({value,label:enumLabel(value)}))}/>
+       </Form.Item>
+       <Button type="primary" htmlType="submit">创建店铺</Button>
+      </Form>
+     </Card>
+     <Card title="邀请成员">
+      <Form layout="vertical" initialValues={{role:'operations',shopIds:props.shop?[props.shop.id]:[]}} onFinish={async values=>{
+       try{
+        const result=await post('/invites',values);
+        setInvite(result);
+        message.success(result.added?'已添加已有用户':'邀请已创建，请将凭据交给成员');
+        api('/members').then(setMembers);
+       }catch(e:any){message.error(e.message);}
+      }}>
+       <Form.Item name="email" label="成员邮箱" rules={[{required:true,type:'email',message:'请输入有效邮箱'}]}><Input/></Form.Item>
+       <Form.Item name="role" label="角色"><Select options={['admin','sales','operations','finance','viewer'].map(value=>({value,label:roleLabel(value)}))}/></Form.Item>
+       <Form.Item name="shopIds" label="可访问店铺"><Select mode="multiple" options={shopOptions}/></Form.Item>
+       <Button type="primary" htmlType="submit">创建邀请</Button>
+      </Form>
+      {invite?.token&&<Input.Password style={{marginTop:16}} value={invite.token} readOnly/>}
+     </Card>
+    </div>
+    <Card title="企业成员">
+     <Table rowKey="id" dataSource={members} columns={[
+      {title:'姓名',render:(_:any,row:any)=>row.user.name},
+      {title:'邮箱',render:(_:any,row:any)=>row.user.email},
+      {title:'角色',render:(_:any,row:any)=>roleLabel(row.role)},
+      {title:'店铺范围',render:(_:any,row:any)=>row.shopIds.length+' 个'}
+     ]}/>
+    </Card>
+   </>
+  },
+  {
+   key:'models',
+   label:'模型与费用',
+   children:<>
+    <div className="grid-two">
+     <Card title="企业模型接口">
+      <Form form={form} layout="vertical" initialValues={{provider:'openai-compatible',baseUrl:'https://api.openai.com/v1',monthlyBudget:'20',inputPrice:'0',outputPrice:'0',maxTokens:1800,concurrency:2}} onFinish={async values=>{
+       try{await api('/model-config',{method:'PUT',body:JSON.stringify({...values,apiKey:values.apiKey||undefined})});message.success('模型配置已加密保存');}
+       catch(e:any){message.error(e.message);}
+      }}>
+       <Form.Item name="provider" label="接口类型"><Select options={['openai-compatible','ollama-compatible'].map(value=>({value,label:enumLabel(value)}))}/></Form.Item>
+       <Form.Item name="baseUrl" label="接口地址" rules={[{required:true,message:'请填写接口地址'}]}><Input/></Form.Item>
+       <Form.Item name="model" label="模型名称" rules={[{required:true,message:'请填写模型名称'}]}><Input placeholder="例如：deepseek-chat"/></Form.Item>
+       <Form.Item name="apiKey" label={config?.hasKey?'密钥（留空保留原密钥）':'密钥'}><Input.Password autoComplete="new-password"/></Form.Item>
+       <Form.Item name="monthlyBudget" label="月预算 USD"><Input/></Form.Item>
+       <Form.Item name="inputPrice" label="每百万输入 token 估算单价 USD"><Input/></Form.Item>
+       <Form.Item name="outputPrice" label="每百万输出 token 估算单价 USD"><Input/></Form.Item>
+       <Form.Item name="maxTokens" label="最大输出长度"><InputNumber min={256} max={8000}/></Form.Item>
+       <Form.Item name="concurrency" label="同时处理上限"><InputNumber min={1} max={8}/></Form.Item>
+       <Button type="primary" htmlType="submit">保存模型配置</Button>
+      </Form>
+     </Card>
+     <Card title="费用口径">
+      <p>每次调用先预留预算，返回用量后按企业填写的单价估算费用。失败且费用未知时会保留预留额度，避免漏计。</p>
+      <p className="section-note">模型供应商失败不会静默切换。自定义模型地址需要部署管理员加入允许列表。</p>
+      <Statistic title="已记录调用次数" value={calls.length}/>
+     </Card>
+    </div>
+    <Card title="调用记录">
+     <Table rowKey="id" dataSource={calls} columns={[
+      {title:'模型',dataIndex:'model'},
+      {title:'状态',render:(_:any,row:any)=><Status value={row.state}/>},
+      {title:'输入量',dataIndex:'inputTokens'},
+      {title:'输出量',dataIndex:'outputTokens'},
+      {title:'估算成本 USD',render:(_:any,row:any)=>row.cost??row.reservedCost},
+      {title:'时间',dataIndex:'createdAt'}
+     ]}/>
+    </Card>
+   </>
+  },
+  {
+   key:'audit',
+   label:'审计记录',
+   children:<Card>
+    <Table rowKey="id" dataSource={audit} columns={[
+     {title:'动作',dataIndex:'action'},
+     {title:'目标',dataIndex:'targetId'},
+     {title:'执行人',dataIndex:'actorId'},
+     {title:'时间',dataIndex:'createdAt'}
+    ]} pagination={{pageSize:20}}/>
+   </Card>
+  }
+ ]}/>;
 }
