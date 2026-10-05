@@ -1,3 +1,4 @@
+# Legacy split deployment reference. The compact deployment does not use this template.
 apiVersion: zeabur.com/v1
 kind: Template
 metadata:

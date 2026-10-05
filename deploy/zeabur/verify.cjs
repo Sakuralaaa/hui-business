@@ -36,7 +36,7 @@ async function until(path, terminal) {
   if (!response.ok) throw Error('Create upload session: HTTP ' + response.status);
   const session = await response.json(), file = session.files[0];
   response = await fetch(base + '/intake/sessions/' + session.id + '/files/' + file.id, { method: 'PUT', headers: { Authorization: 'Bearer ' + grant.token, 'Content-Type': 'application/octet-stream', 'Content-Length': String(csv.length) }, body: csv });
-  if (!response.ok) throw Error('Upload to durable S3 storage: HTTP ' + response.status);
+  if (!response.ok) throw Error('Upload to durable original storage: HTTP ' + response.status);
   response = await fetch(base + '/intake/sessions/' + session.id + '/complete', { method: 'POST', headers: uploadHeaders });
   if (!response.ok) throw Error('Complete upload: HTTP ' + response.status);
   const preview = await until('/imports/' + session.id + '/preview', ['ready_for_confirmation', 'needs_review', 'needs_mapping', 'failed', 'rejected']);
@@ -56,5 +56,5 @@ async function until(path, terminal) {
   if (report.state !== 'completed') throw Error('Deterministic analysis failed');
   await request('/upload-grants/' + grant.id + '/revoke', {});
   await request('/auth/logout', {});
-  console.log(JSON.stringify({ passed: ['HTTPS', 'login and 3 enterprises', 'task scoped upload', 'S3 original preservation', 'worker parsing', 'preview and idempotent confirmation', 'original SHA256 download', 'enterprise isolation', 'background deterministic analysis', 'grant revocation'], batchId: session.id, reportId: run.id, aiConfigured: false }));
+  console.log(JSON.stringify({ passed: ['HTTPS', 'login and 3 enterprises', 'task scoped upload', 'durable original preservation', 'worker parsing', 'preview and idempotent confirmation', 'original SHA256 download', 'enterprise isolation', 'background deterministic analysis', 'grant revocation'], batchId: session.id, reportId: run.id, aiConfigured: false }));
 })().catch(e => { console.error(e.message); process.exitCode = 1; });
