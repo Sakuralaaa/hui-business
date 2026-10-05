@@ -11,4 +11,4 @@ Update existing Zeabur service IDs; do not deploy templates again into this init
 - Application volume: `application` mounted at `/data`; preserve across updates.
 - Current verified image: `ghcr.io/sakuralaaa/hui-business-api:49afcbc35a2062380dfbb4c22a098f02c3b211f4`.
 
-The old split deployment is suspended. See `docs/zeabur-cleanup.md` for its cleanup status; never resume those services during ordinary updates. Preserve database volumes, originals, encryption key and mapping versions. Credentials belong in Zeabur variables or ignored handoff files, never here.
+Deletion of the 10 obsolete split services was accepted with user approval on 2026-10-05. Zeabur scheduled their removal for 06:34:14–06:34:51 UTC that day; final removal has not yet been verified. All old services are suspended. Only the unified application and PostgreSQL are running, and neither is scheduled for deletion. See `docs/zeabur-cleanup.md` for the audit record; do not resume or recreate obsolete services during ordinary updates. Preserve database volumes, originals, encryption key and mapping versions. Credentials belong in Zeabur variables or ignored handoff files, never here.
