@@ -2,7 +2,9 @@ import {test,expect} from '@playwright/test';
 test('login, choose demo, simplified navigation and creation center',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/');await page.getByLabel('邮箱',{exact:true}).fill(process.env.BOOTSTRAP_EMAIL!);await page.getByLabel('密码',{exact:true}).fill(process.env.BOOTSTRAP_PASSWORD!);await page.getByRole('button',{name:'进入工作台'}).click();
- await page.getByRole('button',{name:'进入演示空间',exact:true}).click({timeout:15000}).catch(()=>{});
+ const demoButton=page.getByRole('button',{name:/进入演示空间/});
+ await expect(demoButton).toBeVisible({timeout:30000});
+ await demoButton.click();
  await expect(page.locator('.sidebar')).toBeVisible();
  if(await page.locator('.enterprise-select').count()){await page.locator('.enterprise-select').click();if(await page.locator('.ant-select-dropdown').getByText('演示 · 海川工贸',{exact:true}).count())await page.locator('.ant-select-dropdown').getByText('演示 · 海川工贸',{exact:true}).click();}
  await expect(page.getByText('当前是演示资料，可以放心体验；不会混入自己的企业数据。店铺数据采集能力需在真实账号中验证。')).toBeVisible();
